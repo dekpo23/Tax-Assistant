@@ -1,0 +1,11 @@
+
+annotated-doc
+annotated-types
+bcrypt
+dotenv
+fastapi
+pydantic
+PyJWT
+PyMySQL
+SQLAlchemy
+uvicorn
