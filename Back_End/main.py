@@ -1,74 +1,45 @@
-from database.database import db
-from fastapi import Depends, FastAPI, HTTPException
-from pydantic import BaseModel, Field
-# from typing import Optional, Dict
-from sqlalchemy import text
+from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import Optional
 import os
 from dotenv import load_dotenv
 
-import bcrypt
-import uvicorn
-from database.middleware import create_token, verify_token
-import json
-
+# Import routers and dependencies
+from api import router as auth_router
+from database.middleware import verify_token
+from app import get_tax_assistant
 
 
 
 
 load_dotenv()
 
-token_time = int(os.getenv("token_time"))
+app = FastAPI(
+    title="Nigeria Tax Assistant API",
+    description="API for Nigerian tax information and calculations",
+    version="1.0.0"
+)
 
-app = FastAPI(title="Tax Assitant", version="1.0.0")
-
-class User(BaseModel):
-    name: str = Field(..., examples=["Azumi Abby"])
-    email: str = Field(..., examples=["abby@gmail.com"])
-    password: str = Field(..., examples=["abby12345"])
-    usertype: str = Field(..., examples=["user"])
-
-
-
-class Login(BaseModel):
-    email: str = Field(..., examples=["abby@gmail.com"])
-    password: str = Field(..., examples=["abby12345"])
-
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
-
-@app.post("/signup")
-def signup(input: User):
-    try:
-
-        duplicate_query = text("""
-            SELECT * FROM users WHERE email = :email
-            
-        """)
-
-        existing = db.execute(duplicate_query, {"email": input.email}).fetchone()
-        if existing:
-            raise HTTPException(status_code=400, detail="Email already exists")
+app.include_router(auth_router)
 
 
-        query = text("""
-            INSERT INTO users (name, email, password, usertype)
-            VALUES (:name, :email, :password, :usertype)
-        """)
-            
-        salt = bcrypt.gensalt()
-        hashedPassword = bcrypt.hashpw(input.password.encode('utf-8'), salt)
 
-       
-        db.execute(query, {"name": input.name, "email": input.email, "password":hashedPassword, "usertype": input.usertype})
-        db.commit()
-        return ({"message": "user created successfully"})
-    
+class TaxQuestion(BaseModel):
+    question: str
 
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail = str(e))
-    finally:
-        db.close()
+class TaxImpactRequest(BaseModel):
+    monthly_income: float
 
 
 
@@ -76,51 +47,119 @@ def signup(input: User):
 
 @app.get("/")
 def home():
-    return {"message": "welcome to tax assistant"}
+    return {
+        "message": "Welcome to Nigeria Tax Assistant API",
+        "endpoints": {
+            "auth": ["POST /auth/signup", "POST /auth/login"],
+            "tax": ["POST /ask", "POST /calculate"],
+            "health": ["GET /health"]
+        }
+    }
 
 
-@app.post("/login")
-def login(input: Login):
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint."""
+    return {
+        "status": "healthy",
+        "service": "Nigeria Tax Assistant API"
+    }
+
+
+
+
+
+# Tax endpoints
+@app.post("/ask")
+def ask_tax_question(
+    request: TaxQuestion,
+    user_info: dict = Depends(verify_token)
+):
+    """Ask a tax-related question (requires authentication)."""
     try:
-        query = text("SELECT * FROM users WHERE email = :email")
-        user = db.execute(query, {"email": input.email}).fetchone()
-
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        # password is stored as bytes — ensure both are bytes before checking
-        stored_password = user.password if isinstance(user.password, bytes) else user.password.encode('utf-8')
-
-
-        verified_password = bcrypt.checkpw(input.password.encode('utf-8'), stored_password)
-
-
-        if not verified_password:
-            raise HTTPException(status_code=401, detail="Invalid password")
+        assistant = get_tax_assistant()
+        user_id = f"user_{user_info['user_id']}"
         
-        encoded_token = create_token(details={
-            "email": user.email,
-            "usertype": user.usertype,
-            "user_id": user.id
-        }, expiry=token_time)
+        response = assistant.ask_question(
+            question=request.question,
+            user_id=user_id
+        )
+        
+        return {
+            "success": True,
+            "user_id": user_info["user_id"],
+            "question": request.question,
+            "answer": response
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing question: {str(e)}"
+        )
+
+
+
+
+
+
+@app.post("/tax/impact")
+def tax_impact(
+    request: TaxImpactRequest,
+    user_info: dict = Depends(verify_token)
+):
+    try:
+        from engine.tax_engine import calculate_tax_impact
+
+        result = calculate_tax_impact(request.monthly_income)
 
         return {
-            "message": "Login successful",
-            "user": {
-                "id": user.id,
-                "name": user.name,
-                "email": user.email,
-                "usertype": user.usertype
-            },
-            "token": encoded_token
+            "success": True,
+            "user_id": user_info["user_id"],
+            "data": result
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+
+
+# Public endpoint (no auth required)
+@app.post("/public/impact")
+def tax_impact(
+    request: TaxImpactRequest,
+    user_info: dict = Depends(verify_token)
+):
+    try:
+        from engine.tax_engine import calculate_tax_impact
+
+        result = calculate_tax_impact(request.monthly_income)
+
+        return {
+            "success": True,
+            "user_id": user_info["user_id"],
+            "data": result
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
 
 
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host=os.getenv("host"), port=int(os.getenv("port")), reload=True)
+    import uvicorn
+    uvicorn.run(
+        "main:app",
+        host=os.getenv("HOST", "0.0.0.0"),
+        port=int(os.getenv("PORT", 8000)),
+        reload=True
+    )

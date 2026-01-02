@@ -1,9 +1,8 @@
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
 from dotenv import load_dotenv
-from pymysql.constants import CLIENT
 import os
-from fastapi import HTTPException
+import logging
 
 load_dotenv()
 
@@ -15,37 +14,32 @@ DB_NAME = os.getenv("DB_NAME")
 
 DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={"client_flag": CLIENT.MULTI_STATEMENTS}
-)
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
 
-SessionLocal = sessionmaker(bind=engine)
-db = SessionLocal()
+# Dependency to get DB session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-create_users = text("""
-    CREATE TABLE IF NOT EXISTS users (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(100) NOT NULL,
-        email VARCHAR(100) NOT NULL UNIQUE,
-        password VARCHAR(100) NOT NULL,
-        usertype VARCHAR(50) NOT NULL
-    );
-""")
+# Auto-create tables on import
+def init_db():
+    """Create database tables if they don't exist."""
+    try:
+        # Import models here to avoid circular imports
+        from database.models import User
+        
+        # Create all tables
+        Base.metadata.create_all(bind=engine)
+        logging.info("Database tables created/verified")
+        
+    except Exception as e:
+        logging.error(f"Failed to create database tables: {e}")
+        raise
 
-
-
-
-
-
-
-db.execute(create_users)
-
-try:
-    db.commit()
-
-except Exception as e:
-    db.rollback()
-    raise HTTPException(status_code=400, detail={"error": "something went wrong"})
-finally:
-    db.close()
+# Call init_db when this module is imported
+init_db()
