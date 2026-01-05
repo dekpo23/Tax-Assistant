@@ -40,6 +40,7 @@ def verify_token(
             )
         
         return {
+            "name": payload.get("name"),
             "email": payload.get("email"),
             "usertype": payload.get("usertype"),
             "user_id": payload.get("user_id")

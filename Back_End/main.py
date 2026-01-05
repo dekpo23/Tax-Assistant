@@ -67,7 +67,15 @@ def health_check():
     }
 
 
-
+@app.get("/get/user")
+def get_user_info(
+    user_info: dict = Depends(verify_token)
+):
+    return {
+        "user_id": user_info["user_id"],
+        "email": user_info["email"],
+        "name": user_info["name"]
+    }
 
 
 # Tax endpoints

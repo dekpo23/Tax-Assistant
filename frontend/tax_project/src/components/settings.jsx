@@ -1,19 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
-  ShieldCheck, 
-  MessageSquare, 
-  Calculator, 
-  Settings, 
-  FileText, 
-  TrendingUp, 
   Moon, 
   Sun, 
   Camera, 
   CheckCircle, 
-  LogOut,
-  ChevronRight,
-  User,
-  AlertTriangle
 } from 'lucide-react';
 
 export default function TaxWiseSettings() {
@@ -22,56 +12,35 @@ export default function TaxWiseSettings() {
   
   // Mock User Data
   const [user, setUser] = useState({
-    fullName: "Ngozi GoogleUser",
-    email: "ngozi.bakare@gmail.com",
+    fullName: "Jane Doe",
+    email: "JaneDoe@gmail.com",
     bio: ""
   });
 
+  const fetchUserData = async ()=> {
+    const response = await fetch("http://127.0.0.1:8000/get/user")
+    if (!response.ok){
+      console.log("Error fetching user data. Deferring back to mock data.");
+      return;
+    }
+
+    const data = await response.json();
+    setUser({
+      fullName: data.name,
+      email: data.email
+    })
+  }
+
+  useEffect(() => {
+    fetchUserData();
+  })
+
   return (
-    <div className={`flex min-h-screen font-sans ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-slate-800'}`}>
+    <div className={`min-h-screen font-sans ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-slate-800'}`}>
       
-      {/* --- Sidebar --- */}
-      <aside className="w-64 bg-[#003b22] text-white flex flex-col shrink-0 fixed h-full z-10">
-        {/* Brand */}
-        <div className="p-6 flex items-center gap-3 font-bold text-xl">
-          <ShieldCheck className="w-8 h-8 text-white" />
-          <span>TaxWise NG</span>
-        </div>
-
-        {/* Navigation */}
-        <nav className="flex-1 px-4 space-y-1 mt-4">
-          <NavItem icon={<MessageSquare size={20} />} label="AI Assistant" />
-          <NavItem icon={<Calculator size={20} />} label="Tax Calculator" />
-          
-          {/* Active Settings Tab */}
-          <div className="flex items-center gap-3 px-4 py-3 bg-[#008751] text-white rounded-lg shadow-sm font-medium cursor-pointer border border-[#00a865]">
-            <Settings size={20} />
-            <span>Settings</span>
-          </div>
-
-          <div className="pt-6 pb-2 px-4 text-xs font-semibold text-green-200/50 uppercase tracking-wider">
-            Policies
-          </div>
-          <NavItem icon={<FileText size={20} />} label="VAT Reform" />
-          <NavItem icon={<TrendingUp size={20} />} label="SME Incentives" />
-        </nav>
-
-        {/* Sidebar Footer (User) */}
-        <div className="p-4 border-t border-green-900/30">
-          <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 cursor-pointer transition-colors">
-            <div className="w-8 h-8 rounded-full bg-orange-200 overflow-hidden border border-white/20">
-               <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Ngozi" alt="User" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">Ngozi GoogleUser</p>
-            </div>
-            <ChevronRight size={16} className="text-green-300" />
-          </div>
-        </div>
-      </aside>
-
       {/* --- Main Content --- */}
-      <main className="flex-1 ml-64 p-8">
+      {/* Removed 'ml-64' so it fills the screen, added 'max-w-7xl mx-auto' to center it nicely on large screens */}
+      <main className="w-full max-w-7xl mx-auto p-8">
         
         {/* Header */}
         <header className="flex justify-between items-center mb-10">
@@ -82,7 +51,10 @@ export default function TaxWiseSettings() {
               <span className="w-1.5 h-1.5 rounded-full bg-[#008751]"></span>
               SECURE SESSION
             </div>
-            <button className="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors">
+            <button 
+              onClick={() => setDarkMode(!darkMode)}
+              className="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors"
+            >
               <Moon size={20} />
             </button>
           </div>
@@ -203,15 +175,6 @@ export default function TaxWiseSettings() {
 }
 
 // Helper Components
-
-function NavItem({ icon, label }) {
-  return (
-    <div className="flex items-center gap-3 px-4 py-3 text-gray-300 hover:bg-white/10 hover:text-white rounded-lg cursor-pointer transition-colors">
-      {icon}
-      <span className="font-medium">{label}</span>
-    </div>
-  );
-}
 
 function ToggleSwitch({ checked, onChange }) {
   return (
