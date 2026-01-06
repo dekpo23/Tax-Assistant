@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import Optional
 import os
 from dotenv import load_dotenv
+import uuid
 
 # Import routers and dependencies
 from api import router as auth_router
@@ -37,6 +38,7 @@ app.include_router(auth_router)
 
 class TaxQuestion(BaseModel):
     question: str
+    session_id: Optional[str] = None
 
 class TaxImpactRequest(BaseModel):
     monthly_income: float
@@ -44,6 +46,62 @@ class TaxImpactRequest(BaseModel):
 
 
 
+
+# -------------------------------------------------------------
+# Conversation session storage methods
+
+import sqlite3
+from datetime import datetime
+
+DB_PATH = os.path.abspath("tax_files/conversation_messages.db")
+# os.makedirs("tax_files", exist_ok=True)
+
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+cursor = conn.cursor()
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS conversation_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id TEXT,
+    role TEXT,
+    content TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+""")
+conn.commit()
+
+
+def save_message(thread_id: str, role: str, content: str):
+    cursor.execute(
+        "INSERT INTO conversation_messages (thread_id, role, content) VALUES (?, ?, ?)",
+        (thread_id, role, content)
+    )
+    conn.commit()
+
+def fetch_history(thread_id: str):
+    cursor.execute(
+        "SELECT role, content, timestamp FROM conversation_messages WHERE thread_id = ? ORDER BY id ASC",
+        (thread_id,)
+    )
+    rows = cursor.fetchall()
+    return [
+        {"role": role, "content": content, "timestamp": timestamp}
+        for role, content, timestamp in rows
+    ]
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Endpoints
 
 @app.get("/")
 def home():
@@ -67,6 +125,26 @@ def health_check():
     }
 
 
+@app.get("/get/user")
+def get_user_info(
+    user_info: dict = Depends(verify_token)
+):
+    return {
+        "user_id": user_info["user_id"],
+        "email": user_info["email"],
+        "name": user_info["name"]
+    }
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -79,16 +157,31 @@ def ask_tax_question(
     """Ask a tax-related question (requires authentication)."""
     try:
         assistant = get_tax_assistant()
-        user_id = f"user_{user_info['user_id']}"
+
+        user_id = user_info["user_id"]
+
+        session_id = request.session_id or "default"
+
+        thread_id = f"user_{user_id}_session_{session_id}"
+
+
+
+        # Save human question
+        save_message(thread_id, "human", request.question)
+
         
         response = assistant.ask_question(
             question=request.question,
-            user_id=user_id
+            user_id=thread_id
         )
+
+        # Save AI answer
+        save_message(thread_id, "ai", response)
         
         return {
             "success": True,
-            "user_id": user_info["user_id"],
+            "user_id": user_id,
+            "session_id": session_id,
             "question": request.question,
             "answer": response
         }
@@ -98,6 +191,32 @@ def ask_tax_question(
             status_code=500,
             detail=f"Error processing question: {str(e)}"
         )
+
+
+
+
+@app.post("/conversation/new")
+def new_conversation(user_info: dict = Depends(verify_token)):
+    session_id = str(uuid.uuid4())
+
+    return {
+        "success": True,
+        "session_id": session_id
+    }
+
+
+
+@app.get("/conversation/history/{session_id}")
+def get_conversation_history(session_id: str, user_info: dict = Depends(verify_token)):
+
+    thread_id = f"user_{user_info['user_id']}_session_{session_id}"
+    
+    history = fetch_history(thread_id)
+    return {
+            "success": True, 
+            "session_id": session_id, 
+            "history": history
+        }
 
 
 
@@ -128,28 +247,18 @@ def tax_impact(
 
 
 
-# Public endpoint (no auth required)
-@app.post("/public/impact")
-def tax_impact(
-    request: TaxImpactRequest,
-    user_info: dict = Depends(verify_token)
-):
-    try:
-        from engine.tax_engine import calculate_tax_impact
 
-        result = calculate_tax_impact(request.monthly_income)
 
-        return {
-            "success": True,
-            "user_id": user_info["user_id"],
-            "data": result
-        }
 
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
+
+
+
+
+
+
+
+
+
 
 
 
