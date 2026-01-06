@@ -208,6 +208,20 @@ class TaxAssistant:
 
    
 
+    # --- ADDED STREAMING METHOD ---
+    def ask_question_stream(self, question: str):
+        """Streams the response token by token."""
+        # For true streaming without blocking, we use the LLM directly
+        messages = [
+            SystemMessage(content="You are a Nigeria Tax Assistant. Answer helpfully and concisely. If you are asked a question that is unrelated to taxes, politely decline and state that you are Tax assistant. Also, only answer questions related to Nigerian tax laws and regulations."),
+            HumanMessage(content=question)
+        ]
+        
+        # This yields chunks of text as they are generated
+        for chunk in self.llm.stream(messages):
+            if chunk.content:
+                yield chunk.content
+
 
 assistant = None
 
