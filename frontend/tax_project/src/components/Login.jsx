@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import { FcGoogle } from "react-icons/fc";
-import { HashRouter, NavLink } from "react-router-dom";
+import { HashRouter, NavLink, useNavigate } from "react-router-dom";
 import { 
   ShieldCheck, 
   Mail, 
@@ -13,6 +13,26 @@ import {
 } from "lucide-react";
 
 function Login() {
+  const navigate = useNavigate();
+
+  // --- Theme State Management ---
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem("app_preferences");
+    return saved ? JSON.parse(saved).darkMode : false;
+  });
+
+  // Sync theme across tabs if it changes elsewhere
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const saved = localStorage.getItem("app_preferences");
+      if (saved) {
+        setDarkMode(JSON.parse(saved).darkMode);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
   const [user_info, setUser_info] = useState({
     email: "",
     password: ""
@@ -22,6 +42,14 @@ function Login() {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState("");
+
+  // Check for token on component mount
+  useEffect(() => {
+    const token = localStorage.getItem("authToken");
+    if (token && token.trim() !== "") {
+      navigate("/chat");
+    }
+  }, [navigate]);
 
   function validate() {
     const newErrors = {};
@@ -62,7 +90,7 @@ function Login() {
       setErrors({});
       setSuccess("");
 
-      const response = await fetch("Api-url", {
+      const response = await fetch("http://127.0.0.1:8000/auth/login", {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -71,12 +99,17 @@ function Login() {
       });
 
       const data = await response.json();
-
+      console.log(data);
+    
       if (!response.ok) {
         throw new Error(data.detail || "Invalid email or password");
       }
 
+      // Save token and navigate
+      localStorage.setItem("authToken", data.token);
       setSuccess("Login successful!");
+      navigate("/chat");
+
     } catch (error) {
       setApiError(error.message);
     } finally {
@@ -84,46 +117,61 @@ function Login() {
     }
   }
 
+  // --- Dynamic Styling Constants ---
+  const bgClass = darkMode ? 'bg-gray-900' : 'bg-slate-50';
+  const cardBg = darkMode ? 'bg-gray-800 border-gray-700 shadow-black/20' : 'bg-white border-slate-100 shadow-green-900/5';
+  const textPrimary = darkMode ? 'text-white' : 'text-slate-900';
+  const textSecondary = darkMode ? 'text-gray-400' : 'text-slate-500';
+  
+  // Input Base & State Styles
+  const inputBase = `w-full pl-12 pr-4 py-3.5 rounded-2xl outline-none transition-all focus:ring-2`;
+  const inputNormal = darkMode 
+    ? "bg-gray-700 border-gray-600 text-white focus:bg-gray-700 focus:ring-green-500/20 focus:border-[#008751] placeholder:text-gray-500"
+    : "bg-slate-50 border-slate-200 text-slate-900 focus:bg-white focus:ring-green-100 focus:border-[#008751] placeholder:text-slate-400";
+  const inputErrorStyle = darkMode
+    ? "bg-gray-700 border-red-500/50 text-red-300 focus:ring-red-900/30"
+    : "bg-slate-50 border-red-200 text-red-900 focus:ring-red-100";
+    
+  const iconBaseColor = darkMode ? 'text-gray-500' : 'text-slate-400';
+  const dividerColor = darkMode ? 'border-gray-700' : 'border-slate-100';
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 relative overflow-hidden font-sans">
+    <div className={`min-h-screen flex flex-col justify-center items-center p-4 relative overflow-hidden font-sans transition-colors duration-300 ${bgClass}`}>
+      
       {/* Decorative background blurs */}
-      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-green-100 rounded-full blur-3xl opacity-50"></div>
-      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-slate-200 rounded-full blur-3xl opacity-50"></div>
+      <div className={`absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full blur-3xl opacity-50 ${darkMode ? 'bg-green-900/20' : 'bg-green-100'}`}></div>
+      <div className={`absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full blur-3xl opacity-50 ${darkMode ? 'bg-gray-800' : 'bg-slate-200'}`}></div>
 
       <div className="w-full max-w-md relative z-10 animate-in fade-in duration-700">
         {/* Brand Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center p-3 bg-white shadow-xl rounded-2xl mb-4 border border-slate-100">
+          <div className={`inline-flex items-center justify-center p-3 shadow-xl rounded-2xl mb-4 border transition-colors ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-slate-100'}`}>
             <ShieldCheck className="text-[#008751]" size={32} />
           </div>
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight">TaxWise Nigeria</h1>
-          <p className="text-slate-500 mt-2 text-sm">Empowering citizens with policy clarity</p>
+          <h1 className={`text-3xl font-black tracking-tight ${textPrimary}`}>TaxWise Nigeria</h1>
+          <p className={`${textSecondary} mt-2 text-sm`}>Empowering citizens with policy clarity</p>
         </div>
 
         {/* Login Card */}
-        <div className="bg-white p-8 rounded-[2.5rem] shadow-2xl shadow-green-900/5 border border-slate-100">
+        <div className={`p-8 rounded-[2.5rem] shadow-2xl transition-colors ${cardBg}`}>
           <div className="mb-8">
-            <h2 className="text-2xl text-center font-bold text-slate-900">Welcome back</h2>
-            <p className="text-slate-500 text-center text-sm mt-1">Please sign in to your account to continue</p>
+            <h2 className={`text-2xl text-center font-bold ${textPrimary}`}>Welcome back</h2>
+            <p className={`${textSecondary} text-center text-sm mt-1`}>Please sign in to your account to continue</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* Email Field */}
             <div className="space-y-1.5">
-              <label className="text-xs font-black text-slate-500 uppercase tracking-widest ml-1">Email address</label>
+              <label className={`text-xs font-black uppercase tracking-widest ml-1 ${textSecondary}`}>Email address</label>
               <div className="relative">
-                <Mail className={`absolute left-4 top-3.5 transition-colors ${errors.email ? 'text-red-400' : 'text-slate-400'}`} size={18} />
+                <Mail className={`absolute left-4 top-3.5 transition-colors ${errors.email ? 'text-red-400' : iconBaseColor}`} size={18} />
                 <input 
                   type="email"
                   name="email"
                   value={user_info.email}
                   onChange={handleChange}
                   placeholder="Enter your email"
-                  className={`w-full pl-12 pr-4 py-3.5 bg-slate-50 border rounded-2xl outline-none transition-all focus:ring-2 focus:bg-white ${
-                    errors.email 
-                    ? 'border-red-200 focus:ring-red-100 text-red-900' 
-                    : 'border-slate-200 focus:ring-green-100 focus:border-[#008751]'
-                  }`}
+                  className={`${inputBase} border ${errors.email ? inputErrorStyle : inputNormal}`}
                 />
               </div>
               {errors.email && (
@@ -137,27 +185,23 @@ function Login() {
             {/* Password Field */}
             <div className="space-y-1.5">
               <div className="flex justify-between items-center px-1">
-                <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Password</label>
+                <label className={`text-xs font-black uppercase tracking-widest ${textSecondary}`}>Password</label>
                 <button type="button" className="text-[10px] text-[#008751] font-bold hover:underline cursor-pointer">Forgot password?</button>
               </div>
               <div className="relative">
-                <Lock className={`absolute left-4 top-3.5 transition-colors ${errors.password ? 'text-red-400' : 'text-slate-400'}`} size={18} />
+                <Lock className={`absolute left-4 top-3.5 transition-colors ${errors.password ? 'text-red-400' : iconBaseColor}`} size={18} />
                 <input 
                   type={showPassword ? "text" : "password"}
                   name="password"
                   value={user_info.password}
                   onChange={handleChange}
                   placeholder="••••••••"
-                  className={`w-full pl-12 pr-12 py-3.5 bg-slate-50 border rounded-2xl outline-none transition-all focus:ring-2 focus:bg-white ${
-                    errors.password 
-                    ? 'border-red-200 focus:ring-red-100 text-red-900' 
-                    : 'border-slate-200 focus:ring-green-100 focus:border-[#008751]'
-                  }`}
+                  className={`${inputBase} border ${errors.password ? inputErrorStyle : inputNormal}`}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-3.5 text-slate-400 hover:text-slate-600 focus:outline-none transition-colors"
+                  className={`absolute right-4 top-3.5 focus:outline-none transition-colors ${darkMode ? 'text-gray-500 hover:text-gray-300' : 'text-slate-400 hover:text-slate-600'}`}
                   aria-label={showPassword ? "Hide password" : "Show password"}
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -192,13 +236,13 @@ function Login() {
 
             {/* API Feedback Alerts */}
             {apiError && (
-              <div className="p-3 bg-red-50 border border-red-100 rounded-xl flex items-center gap-2 text-red-600 text-xs font-medium">
+              <div className={`p-3 border rounded-xl flex items-center gap-2 text-xs font-medium ${darkMode ? 'bg-red-900/20 border-red-900/30 text-red-400' : 'bg-red-50 border-red-100 text-red-600'}`}>
                 <AlertCircle size={14} />
                 <span>{apiError}</span>
               </div>
             )}
             {success && (
-              <div className="p-3 bg-green-50 border border-green-100 rounded-xl flex items-center gap-2 text-green-700 text-xs font-medium">
+              <div className={`p-3 border rounded-xl flex items-center gap-2 text-xs font-medium ${darkMode ? 'bg-green-900/20 border-green-900/30 text-green-400' : 'bg-green-50 border-green-100 text-green-700'}`}>
                 <ShieldCheck size={14} className="text-green-600" />
                 <span>{success}</span>
               </div>
@@ -207,14 +251,14 @@ function Login() {
             {/* Divider and SSO */}
             <div className="pt-4">
               <div className="relative flex items-center py-4">
-                <div className="flex-grow border-t border-slate-100"></div>
-                <span className="flex-shrink mx-4 text-slate-400 text-[10px] font-bold uppercase tracking-widest">Or</span>
-                <div className="flex-grow border-t border-slate-100"></div>
+                <div className={`flex-grow border-t ${dividerColor}`}></div>
+                <span className={`flex-shrink mx-4 text-[10px] font-bold uppercase tracking-widest ${textSecondary}`}>Or</span>
+                <div className={`flex-grow border-t ${dividerColor}`}></div>
               </div>
               
               <button 
                 type="button"
-                className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-slate-200 rounded-2xl text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-all active:scale-[0.99] cursor-pointer"
+                className={`w-full flex items-center justify-center gap-3 py-3 px-4 border rounded-2xl text-sm font-semibold transition-all active:scale-[0.99] cursor-pointer ${darkMode ? 'border-gray-600 text-gray-200 hover:bg-gray-700' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}
               >
                 <FcGoogle size={24}/>
                 <span>Sign in with Google</span>
@@ -224,7 +268,7 @@ function Login() {
 
           {/* Create Account Link */}
           <div className="mt-8 text-center">
-            <p className="text-slate-500 text-sm">
+            <p className={`text-sm ${textSecondary}`}>
               Don't have an account?{" "}
               <NavLink 
                 to="/signup" 
