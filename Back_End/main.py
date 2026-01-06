@@ -53,7 +53,7 @@ import sqlite3
 from datetime import datetime
 
 DB_PATH = os.path.abspath("tax_files/conversation_messages.db")
-# os.makedirs("tax_files", exist_ok=True)
+os.makedirs("tax_files", exist_ok=True)
 
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cursor = conn.cursor()
@@ -170,6 +170,8 @@ def ask_tax_question(
             question=request.question,
             user_id=thread_id
         )
+
+       
 
         # Save AI answer
         save_message(thread_id, "ai", response)
