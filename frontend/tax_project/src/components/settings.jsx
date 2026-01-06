@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom'; 
 import { 
-  Moon, 
   Sun, 
   Camera, 
   CheckCircle,
@@ -11,7 +10,7 @@ import {
 export default function TaxWiseSettings() {
   const navigate = useNavigate();
 
-  // 1. Initialize Settings from LocalStorage (Lazy Initialization)
+  // --- Theme State Management ---
   const [darkMode, setDarkMode] = useState(() => {
     const savedPrefs = localStorage.getItem("app_preferences");
     return savedPrefs ? JSON.parse(savedPrefs).darkMode : false;
@@ -22,22 +21,20 @@ export default function TaxWiseSettings() {
     return savedPrefs ? JSON.parse(savedPrefs).emailAlerts : false;
   });
   
-  // Mock User Data (Default state)
   const [user, setUser] = useState({
     fullName: "Jane Doe",
     email: "JaneDoe@gmail.com",
     bio: ""
   });
 
-  // 2. Effect to Persist Preferences changes to LocalStorage
+  // --- Effects ---
   useEffect(() => {
-    const preferences = {
-      darkMode: darkMode,
-      emailAlerts: emailAlerts
-    };
+    const preferences = { darkMode, emailAlerts };
     localStorage.setItem("app_preferences", JSON.stringify(preferences));
+    
+    // Dispatch event so the Global Navbar (in App.js) knows the theme changed
+    window.dispatchEvent(new Event("storage"));
 
-    // Optional: Add 'dark' class to body/html for global tailwind dark mode support
     if (darkMode) {
       document.documentElement.classList.add('dark');
     } else {
@@ -45,7 +42,19 @@ export default function TaxWiseSettings() {
     }
   }, [darkMode, emailAlerts]);
 
-  // Function to fetch data with the token
+  // Sync with Global Navbar theme changes
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const saved = localStorage.getItem("app_preferences");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.darkMode !== darkMode) setDarkMode(parsed.darkMode);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [darkMode]);
+
   const fetchUserData = async (token) => {
     try {
       const response = await fetch("http://127.0.0.1:8000/get/user", {
@@ -57,7 +66,6 @@ export default function TaxWiseSettings() {
       });
 
       if (!response.ok) {
-        console.log("Error fetching user data. Using mock data.");
         if (response.status === 401) {
            localStorage.removeItem("authToken");
            navigate("/");
@@ -78,14 +86,11 @@ export default function TaxWiseSettings() {
 
   useEffect(() => {
     const token = localStorage.getItem("authToken");
-
     if (!token || token.trim() === "") {
       navigate("/");
       return; 
     }
-
     fetchUserData(token);
-    
   }, [navigate]);
 
   const Logout = () => {
@@ -94,30 +99,14 @@ export default function TaxWiseSettings() {
   };
 
   return (
-    // Reactive Class Name based on darkMode state
-    <div className={`min-h-screen font-sans transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-slate-800'}`}>
+    // Note: App.js handles the scrolling (overflow-y-auto) and the main background color.
+    // We just provide the container and content here.
+    <div className={`w-full font-sans transition-colors duration-300 ${darkMode ? 'text-white' : 'text-slate-800'}`}>
       
-      {/* --- Main Content --- */}
-      <main className="w-full max-w-7xl mx-auto p-8">
-        
-        {/* Header */}
-        {/* <header className="flex justify-between items-center mb-10">
-          <h2 className={`text-lg font-semibold ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Settings Interface</h2>
-          
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 bg-green-50 text-[#008751] px-3 py-1.5 rounded-full text-xs font-bold tracking-wide">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#008751]"></span>
-              SECURE SESSION
-            </div>
-            <button 
-              onClick={() => setDarkMode(!darkMode)}
-              className={`p-2 rounded-full transition-colors ${darkMode ? 'text-yellow-400 hover:bg-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
-            >
-              {darkMode ? <Sun size={20} /> : <Moon size={20} />}
-            </button>
-          </div>
-        </header> */}
+      {/* ❌ REMOVED: Local Navbar. The Global Navbar in App.js now handles the menu. */}
 
+      <div className="max-w-7xl mx-auto p-4 lg:p-8">
+        
         {/* Page Title & Logout */}
         <div className='flex justify-between items-center mb-8'>
           <div>
@@ -130,7 +119,7 @@ export default function TaxWiseSettings() {
             onClick={Logout}
           >
             <LogOut size={20} />
-            <span>Logout</span>
+            <span className="hidden sm:inline">Logout</span>
           </button>
         </div>
 
@@ -239,7 +228,7 @@ export default function TaxWiseSettings() {
 
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

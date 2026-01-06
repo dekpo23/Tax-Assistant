@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import ReactMarkdown from 'react-markdown'; // 1. Import ReactMarkdown
+import ReactMarkdown from 'react-markdown'; 
 import { 
   ShieldCheck, 
   Menu, 
@@ -79,21 +79,28 @@ export default function TaxWiseChat() {
     fetchUserData();
   }, []);
 
-  // --- Handle Chat Submission ---
+  // --- Handle Chat Submission (STREAMING + MARKDOWN) ---
   const handleSend = async () => {
     if (!input.trim()) return;
 
     const userText = input;
+    setInput("");
+    setIsLoading(true); // Show thinking spinner
+
+    // 1. Add User Message
     const userMessage = { id: Date.now(), role: 'user', text: userText };
     
-    setMessages(prev => [...prev, userMessage]);
-    setInput("");
-    setIsLoading(true);
+    // 2. Add an EMPTY Bot Message immediately (placeholder for streaming)
+    const botMessageId = Date.now() + 1;
+    const initialBotMessage = { id: botMessageId, role: 'bot', text: "" };
+    
+    setMessages(prev => [...prev, userMessage, initialBotMessage]);
 
     const token = localStorage.getItem("authToken");
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/ask", {
+      // ✅ CHANGED: Point to the streaming endpoint
+      const response = await fetch("http://127.0.0.1:8000/ask/stream", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -102,22 +109,61 @@ export default function TaxWiseChat() {
         body: JSON.stringify({ question: userText }) 
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to get response");
-      }
+      if (!response.ok) throw new Error("Stream failed");
 
-      const data = await response.json();
-      const botResponseText = data.response || data.answer || data.message || "I received your message, but the server didn't provide a text response.";
-      
-      const botMessage = { 
-        id: Date.now() + 1, 
-        role: 'bot', 
-        text: botResponseText 
-      };
-      setMessages(prev => [...prev, botMessage]);
+      // ✅ STREAMING LOGIC: Read the response chunk by chunk
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      let botTextAccumulator = "";
+
+      setIsLoading(false); // Hide spinner, start showing text
+
+      while (!done) {
+        const { value, done: doneReading } = await reader.read();
+        done = doneReading;
+        
+        if (value) {
+          const chunkValue = decoder.decode(value, { stream: true });
+          
+          // Parse Server-Sent Events (format: "data: {...}")
+          const lines = chunkValue.split("\n\n");
+          for (let line of lines) {
+            if (line.startsWith("data: ")) {
+              const dataStr = line.replace("data: ", "").trim();
+              
+              if (dataStr === "[DONE]") {
+                done = true;
+                break;
+              }
+
+              try {
+                const data = JSON.parse(dataStr);
+                // Check for 'token' (standard) or 'error'
+                if (data.token) {
+                  botTextAccumulator += data.token;
+                  
+                  // Update State: This triggers re-render, creating the typing effect
+                  setMessages(prevMessages => 
+                    prevMessages.map(msg => 
+                      msg.id === botMessageId 
+                        ? { ...msg, text: botTextAccumulator } 
+                        : msg
+                    )
+                  );
+                }
+              } catch (e) {
+                console.error("Error parsing stream chunk", e);
+              }
+            }
+          }
+        }
+      }
 
     } catch (error) {
       console.error("Error fetching chat data:", error);
+      // Remove the empty bot message and show error
+      setMessages(prev => prev.filter(msg => msg.id !== botMessageId));
       setMessages(prev => [...prev, { 
         id: Date.now() + 1, 
         role: 'bot', 
@@ -166,7 +212,7 @@ export default function TaxWiseChat() {
     <main className={`flex flex-col relative w-full h-full font-sans transition-colors duration-300 ${mainBg}`}>
       
       {/* --- Chat Header --- */}
-      <header className={`h-16 border-b flex items-center justify-between px-6 shrink-0 backdrop-blur-sm z-10 transition-colors ${headerBg}`}>
+      {/* <header className={`h-16 border-b flex items-center justify-between px-6 shrink-0 backdrop-blur-sm z-10 transition-colors ${headerBg}`}>
         <div className="flex items-center gap-4">
           <button className={`p-2 -ml-2 rounded-lg lg:hidden transition-colors ${darkMode ? 'text-gray-400 hover:bg-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'}`}>
             <Menu size={20} />
@@ -182,7 +228,7 @@ export default function TaxWiseChat() {
             {darkMode ? <Sun size={20} /> : <Moon size={20} />}
           </button>
         </div>
-      </header>
+      </header> */}
 
       {/* --- Chat Messages Area --- */}
       <div className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-8">
@@ -203,11 +249,10 @@ export default function TaxWiseChat() {
                 ? `${userBubbleBg} rounded-2xl rounded-tr-none` 
                 : `${botBubbleBg} border rounded-2xl rounded-tl-none`
             }`}>
-              {/* 2. Logic to render Markdown for Bot, Text for User */}
+              {/* ✅ MARKDOWN RENDERING */}
               {msg.role === 'bot' ? (
                 <ReactMarkdown 
                   components={{
-                    // Custom styles for Markdown elements to match Tailwind
                     p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />,
                     ul: ({node, ...props}) => <ul className="list-disc pl-4 mb-2 space-y-1" {...props} />,
                     ol: ({node, ...props}) => <ol className="list-decimal pl-4 mb-2 space-y-1" {...props} />,

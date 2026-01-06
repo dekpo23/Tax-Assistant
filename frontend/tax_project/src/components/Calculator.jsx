@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useOutletContext } from 'react-router-dom'; // ✅ 1. Import Context
 import { 
   Calculator, 
   TrendingUp, 
@@ -6,10 +7,14 @@ import {
   Sparkles, 
   Command,
   Info,
-  Loader2 // Added loader icon
+  Loader2,
+  Menu // ✅ 2. Import Menu Icon
 } from 'lucide-react';
 
 export default function TaxCalculator() {
+  // ✅ 3. Get toggle function from parent Layout
+  const { toggleSidebar } = useOutletContext() || {};
+
   // --- Theme State Management ---
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem("app_preferences");
@@ -29,10 +34,7 @@ export default function TaxCalculator() {
 
   // --- Calculator Logic ---
   const [income, setIncome] = useState(5000000);
-  
-  // State to handle debouncing (prevents API spam while dragging slider)
   const [debouncedIncome, setDebouncedIncome] = useState(income);
-
   const [results, setResults] = useState({
     currentTax: 0,
     proposedTax: 0,
@@ -43,22 +45,20 @@ export default function TaxCalculator() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // 1. Debounce Logic: Update debouncedIncome 500ms after user stops typing/dragging
+  // Debounce Logic
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedIncome(income);
     }, 500); 
-
     return () => clearTimeout(timer);
   }, [income]);
 
-  // 2. API Call Logic: Runs when debouncedIncome changes
+  // API Call Logic
   useEffect(() => {
     const fetchTaxImpact = async () => {
       setLoading(true);
       setError(null);
       try {
-        // Replace with your actual backend URL
         const response = await fetch('http://127.0.0.1:8000/public/impact', {
           method: 'POST',
           headers: {
@@ -68,15 +68,11 @@ export default function TaxCalculator() {
           body: JSON.stringify({ monthly_income: debouncedIncome }),
         });
 
-        if (!response.ok) {
-          throw new Error('Failed to calculate tax');
-        }
+        if (!response.ok) throw new Error('Failed to calculate tax');
 
         const jsonData = await response.json();
         const data = jsonData.data;
 
-        // 3. Map Backend Data to Frontend State
-        // Assuming your tax_engine returns this structure based on app.py context
         setResults({
           currentTax: data.current.annual_tax,
           proposedTax: data.proposed.annual_tax,
@@ -92,7 +88,6 @@ export default function TaxCalculator() {
         setLoading(false);
       }
     };
-
     fetchTaxImpact();
   }, [debouncedIncome]);
 
@@ -116,18 +111,10 @@ export default function TaxCalculator() {
   return (
     <div className={`flex flex-col h-full font-sans transition-colors duration-300 ${mainBg}`}>
       
-      {/* Header */}
-      <header className={`h-16 border-b px-8 flex items-center justify-between shrink-0 sticky top-0 z-10 transition-colors ${headerBg}`}>
-        <h2 className={`text-lg font-bold ${textPrimary}`}>Calculator Interface</h2>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 bg-[#e6f4ea] text-[#008751] px-3 py-1.5 rounded-full text-xs font-bold tracking-wide border border-green-100">
-            Problem 1: Tax Reform
-          </div>
-          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold cursor-pointer transition-colors ${darkMode ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}>
-            ME
-          </div>
-        </div>
-      </header>
+      {/* ✅ INTEGRATED HEADER 
+          Acts as the Navbar on mobile (with Menu button) and standard Header on desktop.
+      */}
+      
 
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
@@ -153,7 +140,6 @@ export default function TaxCalculator() {
                     onChange={(e) => setIncome(Number(e.target.value))}
                     className={`w-full pl-10 pr-4 py-4 rounded-xl font-bold text-lg focus:outline-none focus:border-[#008751] focus:ring-4 focus:ring-green-500/10 transition-all ${inputBg}`}
                   />
-                  {/* Sync Indicator */}
                   {loading && (
                     <div className="absolute right-4 top-1/2 -translate-y-1/2">
                       <Loader2 className="animate-spin text-[#008751]" size={20} />
@@ -186,7 +172,6 @@ export default function TaxCalculator() {
                 
                 <div className="flex justify-between items-start mb-3 relative z-10">
                   <div className="text-xs font-bold text-[#008751] uppercase tracking-wide opacity-80">Estimated Monthly Relief</div>
-                  {/* Dynamic Badge based on relief */}
                   <span className={`text-[10px] font-bold text-[#008751] px-2 py-1 rounded-md shadow-sm backdrop-blur-sm ${darkMode ? 'bg-gray-900/80' : 'bg-white/80'}`}>
                     {results.relief >= 0 ? 'Tax Savings' : 'Tax Increase'}
                   </span>
@@ -236,7 +221,6 @@ export default function TaxCalculator() {
                        </span>
                     </div>
                   </div>
-                  {/* Dynamic width calculation for visualization */}
                   <div className={`h-3 w-full rounded-full overflow-hidden ${darkMode ? 'bg-green-900/20' : 'bg-green-50'}`}>
                     <div 
                         className="h-full bg-[#008751] rounded-full transition-all duration-500 ease-out" 
@@ -278,7 +262,7 @@ export default function TaxCalculator() {
             </div>
           </div>
 
-          {/* Right Column: Highlights & FAB (Kept same as original mostly) */}
+          {/* Right Column: Highlights & FAB */}
           <div className="xl:col-span-4 space-y-6">
             <div className={`p-6 rounded-2xl shadow-sm border h-full flex flex-col transition-colors ${cardBg}`}>
               <div className={`flex items-center gap-2 mb-6 pb-4 border-b ${darkMode ? 'border-gray-700' : 'border-gray-50'}`}>
