@@ -14,7 +14,6 @@ from langchain_core.documents import Document
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
 from langgraph.checkpoint.sqlite import SqliteSaver
-
 from engine.tax_engine import calculate_tax_impact
 
 load_dotenv()
@@ -88,7 +87,7 @@ class TaxAssistant:
                 impact = result["impact"]
 
                 return f"""
-📊 **Nigeria PAYE Tax Impact (Reform Analysis)**
+**Nigeria PAYE Tax Impact (Reform Analysis)**
 
 **Income**
 • Monthly Income: ₦{result['monthly_income']:,.2f}
@@ -201,6 +200,13 @@ class TaxAssistant:
         except Exception:
             response = self.llm.invoke([HumanMessage(content=question)])
             return response.content
+        
+
+
+
+
+
+   
 
     # --- ADDED STREAMING METHOD ---
     def ask_question_stream(self, question: str):

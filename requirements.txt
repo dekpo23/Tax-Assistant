@@ -9,3 +9,14 @@ PyJWT
 PyMySQL
 SQLAlchemy
 uvicorn
+
+
+langchain
+langgraph
+langgraph-checkpoint-sqlite
+
+langchain-chroma
+langchain-openai
+pdfplumber
+pandas
+python-multipart
