@@ -14,6 +14,7 @@ from langchain_core.documents import Document
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
 from langgraph.checkpoint.sqlite import SqliteSaver
+
 from engine.tax_engine import calculate_tax_impact
 
 load_dotenv()
@@ -87,7 +88,7 @@ class TaxAssistant:
                 impact = result["impact"]
 
                 return f"""
-**Nigeria PAYE Tax Impact (Reform Analysis)**
+📊 **Nigeria PAYE Tax Impact (Reform Analysis)**
 
 **Income**
 • Monthly Income: ₦{result['monthly_income']:,.2f}
@@ -200,27 +201,55 @@ class TaxAssistant:
         except Exception:
             response = self.llm.invoke([HumanMessage(content=question)])
             return response.content
-        
-
-
-
-
-
-   
 
     # --- ADDED STREAMING METHOD ---
-    def ask_question_stream(self, question: str):
-        """Streams the response token by token."""
-        # For true streaming without blocking, we use the LLM directly
-        messages = [
-            SystemMessage(content="You are a Nigeria Tax Assistant. Answer helpfully and concisely. If you are asked a question that is unrelated to taxes, politely decline and state that you are Tax assistant. Also, only answer questions related to Nigerian tax laws and regulations."),
-            HumanMessage(content=question)
-        ]
+    # def ask_question_stream(self, question: str):
+    #     """Streams the response token by token."""
+    #     # For true streaming without blocking, we use the LLM directly
+    #     messages = [
+    #         SystemMessage(content="You are a Nigeria Tax Assistant. Answer helpfully and concisely. If you are asked a question that is unrelated to taxes, politely decline and state that you are Tax assistant. Also, only answer questions related to Nigerian tax laws and regulations."),
+    #         HumanMessage(content=question)
+    #     ]
         
-        # This yields chunks of text as they are generated
-        for chunk in self.llm.stream(messages):
-            if chunk.content:
-                yield chunk.content
+    #     # This yields chunks of text as they are generated
+    #     for chunk in self.agent.stream(messages):
+    #         if chunk.content:
+    #             yield chunk.content
+    
+    def ask_question_stream(self, question: str, user_id: str = "default"):
+        """
+        Uses the compiled Agent (connected to RAG) to generate the response.
+        Yields the final response content.
+        """
+        try:
+            # 1. Compile the agent (same as ask_question)
+            agent = self.builder.compile(checkpointer=self.checkpointer)
+            
+            # 2. Prepare the input payload
+            inputs = {"messages": [HumanMessage(content=question)]}
+            config = {"configurable": {"thread_id": user_id}}
+            
+            # 3. Stream the graph execution
+            # 'stream_mode="updates"' yields the output of each node as it completes.
+            # This ensures the RAG tools are called before the final answer is yielded.
+            for output in agent.stream(inputs, config=config, stream_mode="updates"):
+                # output structure is like: {'node_name': {'messages': [Message, ...]}}
+                for node_name, state_update in output.items():
+                    # Check if this update contains messages
+                    if "messages" in state_update:
+                        messages = state_update["messages"]
+                        if messages:
+                            last_msg = messages[-1]
+                            # We only want to yield the final text response from the AI
+                            # (skipping tool call messages)
+                            if last_msg.content:
+                                yield last_msg.content
+
+        except Exception as e:
+            # Fallback to pure LLM if the Agent crashes (matches your previous logic)
+            # You might want to log 'e' here for debugging
+            response = self.llm.invoke([HumanMessage(content=question)])
+            yield response.content
 
 
 assistant = None
