@@ -59,7 +59,7 @@ export default function TaxCalculator() {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch('http://127.0.0.1:8000/public/impact', {
+        const response = await fetch('https://fashionable-demeter-ajeessolutions-c2d97d4a.koyeb.app/public/impact', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

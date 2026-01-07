@@ -35,7 +35,7 @@ export default function Sidebar({ isOpen, className = "" }) {
     if (!token) return;
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/get/user", {
+      const response = await fetch("https://fashionable-demeter-ajeessolutions-c2d97d4a.koyeb.app/get/user", {
         method: "GET",
         headers: {
           "Content-Type": "application/json",

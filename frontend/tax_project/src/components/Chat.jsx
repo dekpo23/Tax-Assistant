@@ -51,7 +51,7 @@ export default function TaxWiseChat() {
       if (!token) return;
 
       try {
-        const response = await fetch("http://127.0.0.1:8000/get/user", {
+        const response = await fetch("https://fashionable-demeter-ajeessolutions-c2d97d4a.koyeb.app/get/user", {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
@@ -100,7 +100,7 @@ export default function TaxWiseChat() {
 
     try {
       // ✅ CHANGED: Point to the streaming endpoint
-      const response = await fetch("http://127.0.0.1:8000/ask/stream", {
+      const response = await fetch("https://fashionable-demeter-ajeessolutions-c2d97d4a.koyeb.app/ask/stream", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
