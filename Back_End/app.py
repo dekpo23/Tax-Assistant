@@ -210,6 +210,7 @@ class TaxAssistant:
                          "If you are asked a question that is unrelated to taxes, politely decline and state that you are Tax assistant." 
                          "Answer only using retrieved Nigerian tax laws." 
                          "If information is missing, say you do not have it."
+                         "always include proper citations like section, title, page.. well formatted for reading whenever retrieval is made."
                 )
             )
             messages = [system] + state["messages"]
