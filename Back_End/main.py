@@ -10,7 +10,7 @@ from typing import Optional
 import os
 from dotenv import load_dotenv
 import uuid
-
+from langchain.messages import AIMessage
 # Import routers and dependencies
 from api import router as auth_router
 from database.middleware import verify_token
@@ -138,57 +138,55 @@ def get_user_info(
 
 
 
+# # Tax endpoints
+# @app.post("/ask")
+# def ask_tax_question(
+#     request: TaxQuestion,
+#     user_info: dict = Depends(verify_token)
+# ):
+#     """Ask a tax-related question (requires authentication)."""
+#     try:
+#         assistant = get_tax_assistant()
+
+#         user_id = user_info["user_id"]
+
+#         session_id = request.session_id or "default"
+
+#         thread_id = f"user_{user_id}_session_{session_id}"
 
 
 
-
-
-
-# Tax endpoints
-@app.post("/ask")
-def ask_tax_question(
-    request: TaxQuestion,
-    user_info: dict = Depends(verify_token)
-):
-    """Ask a tax-related question (requires authentication)."""
-    try:
-        assistant = get_tax_assistant()
-
-        user_id = user_info["user_id"]
-
-        session_id = request.session_id or "default"
-
-        thread_id = f"user_{user_id}_session_{session_id}"
-
-
-
-        # Save human question
-        save_message(thread_id, "human", request.question)
+#         # Save human question
+#         save_message(thread_id, "human", request.question)
 
         
-        response = assistant.ask_question(
-            question=request.question,
-            user_id=thread_id
-        )
+#         response = assistant.ask_question(
+#             question=request.question,
+#             user_id=thread_id
+#         )
 
        
 
-        # Save AI answer
-        save_message(thread_id, "ai", response)
+#         # Save AI answer
+#         save_message(thread_id, "ai", response["messages"][-1].content)
+#         tool_call = {}
+#         for msg in response["message"]:
+#             tool_call.append(msg.tool_calls[0]["name"])
+            
+#         return {
+#             "success": True,
+#             "user_id": user_id,
+#             "session_id": session_id,
+#             "question": request.question,
+#             "answer": response,
+#             "tool_call": tool_call
+#         }
         
-        return {
-            "success": True,
-            "user_id": user_id,
-            "session_id": session_id,
-            "question": request.question,
-            "answer": response
-        }
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error processing question: {str(e)}"
-        )
+#     except Exception as e:
+#         raise HTTPException(
+#             status_code=500,
+#             detail=f"Error processing question: {str(e)}"
+#         )
 
 
 
@@ -225,6 +223,69 @@ def ask_tax_question_stream(
     return StreamingResponse(response_generator(), media_type="text/event-stream")
 
 
+from fastapi.responses import StreamingResponse
+import json
+
+@app.post("/ask")
+def ask_tax_question(
+    request: TaxQuestion,
+    user_info: dict = Depends(verify_token)
+):
+    try:
+        assistant = get_tax_assistant()
+
+        user_id = user_info["user_id"]
+        session_id = request.session_id or "default"
+        thread_id = f"user_{user_id}_session_{session_id}"
+
+        # Save human question
+        save_message(thread_id, "human", request.question)
+
+        def stream_generator():
+            full_answer = ""
+            tool_calls = []
+
+            # Send metadata first
+            yield json.dumps({
+                "type": "meta",
+                "success": True,
+                "user_id": user_id,
+                "session_id": session_id,
+                "question": request.question
+            }) + "\n"
+
+            # Stream answer tokens
+            for chunk in assistant.ask_question(
+                question=request.question,
+                user_id=thread_id
+            ):
+                full_answer += chunk
+
+                yield json.dumps({
+                    "type": "token",
+                    "content": chunk
+                }) + "\n"
+
+            # Save final AI message
+            save_message(thread_id, "ai", full_answer)
+
+            # Send final payload
+            yield json.dumps({
+                "type": "done",
+                "answer": full_answer,
+                "tool_call": tool_calls
+            }) + "\n"
+
+        return StreamingResponse(
+            stream_generator(),
+            media_type="application/json"
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing question: {str(e)}"
+        )
 
 
 
@@ -279,10 +340,6 @@ def tax_impact(
             status_code=500,
             detail=str(e)
         )
-
-
-
-
 
 
 

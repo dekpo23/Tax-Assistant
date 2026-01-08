@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_chroma import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langchain_core.tools import tool
 from langchain_core.documents import Document
 from langgraph.graph import StateGraph, MessagesState, START, END
@@ -34,7 +34,7 @@ class TaxAssistant:
 
         # Initialize vector store
         self.vector_store = self._initialize_vector_store()
-        self.retriever = self.vector_store.as_retriever(search_kwargs={"k": 3})
+        self.retriever = self.vector_store.as_retriever(search_type="mmr", search_kwargs={"k": 10, "fetch_k": 20, "lambda_mult": 0.6})
 
         # Tools and graph
         self.tools = self._setup_tools()
@@ -68,8 +68,12 @@ class TaxAssistant:
         def retriever_tool(query: str) -> str:
             """Searches Nigerian tax laws for exemptions, rules, and regulations."""
             docs = self.retriever.invoke(query)
+
+            if not docs:
+                return "No relevant tax law sections found."
+            
             return "\n\n---\n\n".join([
-                f"Source: {d.metadata.get('source', 'Unknown')} | Page {d.metadata.get('page', 'N/A')}\n\n{d.page_content[:1000]}..."
+                f"Source: {d.metadata.get('source')} | Page {d.metadata.get('page')}\n\n{d.page_content}"
                 for d in docs
             ])
 
@@ -115,22 +119,48 @@ class TaxAssistant:
         return [retriever_tool, calculate_nigeria_tax_2025]
 
 
+
+
+
+    # loading PDFs
+    def _is_structural_noise(self, text: str) -> bool:
+        noise_markers = [
+            "ARRANGEMENT OF SECTIONS",
+            "TABLE OF CONTENTS",
+            "CHAPTER ONE",
+            "CHAPTER TWO",
+            "CHAPTER THREE"
+        ]
+        upper = text.upper()
+        return any(marker in upper for marker in noise_markers)
+
+
     def _load_all_pdfs(self):
+
         documents = []
+
         if not os.path.exists(self.pdf_directory):
             os.makedirs(self.pdf_directory)
             return documents
 
         for filename in os.listdir(self.pdf_directory):
-            if filename.lower().endswith(".pdf"):
-                with pdfplumber.open(os.path.join(self.pdf_directory, filename)) as pdf:
-                    for i, page in enumerate(pdf.pages):
-                        text = page.extract_text() or ""
-                        if text.strip():
-                            documents.append(Document(
-                                page_content=text,
-                                metadata={"source": filename, "page": i + 1}
-                            ))
+
+            if not filename.lower().endswith(".pdf"):
+                continue
+
+            with pdfplumber.open(os.path.join(self.pdf_directory, filename)) as pdf:
+                for i, page in enumerate(pdf.pages):
+                    text = page.extract_text() or ""
+                    if not text.strip():
+                        continue
+
+                    if self._is_structural_noise(text):
+                        continue
+
+                    documents.append(Document(
+                        page_content=text,
+                        metadata={"source": filename, "page": i + 1, "doc_type": "tax_law"}
+                    ))
         return documents
 
 
@@ -151,8 +181,16 @@ class TaxAssistant:
             )
 
         splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200
+            chunk_size=800,
+            chunk_overlap=150,
+            separators=[
+                "\n\nSection ",
+                "\n\nSECTION ",
+                "\n\nPart ",
+                "\n\nPART ",
+                "\n\n(",
+                "\n\n",
+            ],
         )
         chunks = splitter.split_documents(docs)
 
@@ -166,7 +204,14 @@ class TaxAssistant:
     def _build_graph(self):
 
         def llm_node(state: MessagesState):
-            system = SystemMessage(content="You are a Nigeria Tax Assistant.")
+            system = SystemMessage(
+                content=("You are a Nigeria Tax Assistant." 
+                         "Answer helpfully and concisely." 
+                         "If you are asked a question that is unrelated to taxes, politely decline and state that you are Tax assistant." 
+                         "Answer only using retrieved Nigerian tax laws." 
+                         "If information is missing, say you do not have it."
+                )
+            )
             messages = [system] + state["messages"]
             llm_with_tools = self.llm.bind_tools(self.tools)
             response = llm_with_tools.invoke(messages)
@@ -189,20 +234,49 @@ class TaxAssistant:
         return builder
 
 
+    # def ask_question(self, question: str, user_id: str = "default"):
+    #     try:
+    #         agent = self.builder.compile(checkpointer=self.checkpointer)
+            
+    #         final_content = ""
+
+    #         result = agent.invoke(
+    #             {"messages": [HumanMessage(content=question)]},
+    #             {"configurable": {"thread_id": user_id}}
+    #         )
+    #         return result["messages"][-1].content
+
+    #         # return result
+
+    #     except Exception as e:
+    #         response = self.llm.invoke([HumanMessage(content=question)])
+    #         return response.content
+            
+        
+
     def ask_question(self, question: str, user_id: str = "default"):
         try:
             agent = self.builder.compile(checkpointer=self.checkpointer)
-            result = agent.invoke(
+
+            final_content = ""
+
+            for event in agent.stream(
                 {"messages": [HumanMessage(content=question)]},
                 {"configurable": {"thread_id": user_id}}
-            )
-            return result["messages"][-1].content
-        except Exception:
+            ):
+                for value in event.values():
+                    if isinstance(value, dict) and "messages" in value:
+                        msg = value["messages"][-1]
+                        if isinstance(msg, AIMessage) and msg.content:
+                            final_content = msg.content
+
+            return final_content
+
+        except Exception as e:
             response = self.llm.invoke([HumanMessage(content=question)])
             return response.content
+            
         
-
-
 
 
 
