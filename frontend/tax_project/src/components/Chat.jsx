@@ -24,14 +24,9 @@ export default function TaxWiseChat() {
   // --- Chat & User State ---
   const [input, setInput] = useState("");
   const [userName, setUserName] = useState("User");
-  const [messages, setMessages] = useState([
-    { 
-      id: 1, 
-      role: 'bot', 
-      text: "Hello! I'm your TaxWise assistant. How can I help you understand the Nigerian Tax reforms today?" 
-    }
-  ]);
+  const [messages, setMessages] = useState([]); // Start empty, load history later
   const [isLoading, setIsLoading] = useState(false);
+  const [sessionId, setSessionId] = useState(localStorage.getItem("current_session_id"));
   
   // Auto-scroll ref
   const messagesEndRef = useRef(null);
@@ -44,42 +39,74 @@ export default function TaxWiseChat() {
     scrollToBottom();
   }, [messages, isLoading]);
 
-  // --- Fetch User Data ---
+  // --- 1. Listen for Session Changes (from Sidebar) ---
   useEffect(() => {
-    const fetchUserData = async () => {
+    const handleSessionChange = () => {
+        const newId = localStorage.getItem("current_session_id");
+        setSessionId(newId);
+    };
+
+    window.addEventListener('new_chat_session', handleSessionChange);
+    return () => window.removeEventListener('new_chat_session', handleSessionChange);
+  }, []);
+
+  // --- 2. Fetch User Data & Chat History ---
+  useEffect(() => {
+    const initializeChat = async () => {
       const token = localStorage.getItem("authToken");
       if (!token) return;
 
+      // A. Fetch User Name
       try {
-        const response = await fetch("https://fashionable-demeter-ajeessolutions-c2d97d4a.koyeb.app/get/user", {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-          }
+        const userRes = await fetch("https://fashionable-demeter-ajeessolutions-c2d97d4a.koyeb.app/get/user", {
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }
         });
-
-        if (response.ok) {
-          const data = await response.json();
-          let fetchedName = "User";
-          if (data.name) fetchedName = data.name;
-          else if (data.full_name) fetchedName = data.full_name.split(' ')[0];
-          
-          setUserName(fetchedName);
-          
-          setMessages(prev => prev.map(msg => 
-            msg.id === 1 ? { ...msg, text: `Hello ${fetchedName}! How can I help you understand the Nigerian Tax reforms today?` } : msg
-          ));
+        if (userRes.ok) {
+          const userData = await userRes.json();
+          setUserName(userData.name || "User");
         }
-      } catch (error) {
-        console.error("Failed to fetch user data", error);
+      } catch (e) { console.error("User fetch error", e); }
+
+      // B. Fetch History or Set Default
+      if (sessionId) {
+          try {
+              const historyRes = await fetch(`https://fashionable-demeter-ajeessolutions-c2d97d4a.koyeb.app/conversation/history/${sessionId}`, {
+                  headers: { "Authorization": `Bearer ${token}` }
+              });
+              
+              if (historyRes.ok) {
+                  const data = await historyRes.json();
+                  if (data.history && data.history.length > 0) {
+                      // Format Backend History to Frontend State
+                      const formattedMessages = data.history.map((msg, index) => ({
+                          id: index, // Simple index ID
+                          role: msg.role === 'human' ? 'user' : 'bot', // Map 'human' -> 'user', 'ai' -> 'bot'
+                          text: msg.content
+                      }));
+                      setMessages(formattedMessages);
+                  } else {
+                      // Session exists but is empty? Show default.
+                      setMessages([{ id: 'init', role: 'bot', text: `Welcome to TaxWise AI Assitant! How can I be of help?` }]);
+                  }
+              }
+          } catch (e) {
+              console.error("History fetch error", e);
+          }
+      } else {
+          // No Session ID? It's a brand new (local) chat.
+          setMessages([{ 
+              id: 'init', 
+              role: 'bot', 
+              text: "Hello! I'm your TaxWise assistant. How can I help you understand the Nigerian Tax reforms today?" 
+          }]);
       }
     };
 
-    fetchUserData();
-  }, []);
+    initializeChat();
+  }, [sessionId]); // Re-run when session ID changes
 
-  // --- Handle Chat Submission (FIXED STREAMING LOGIC) ---
+
+  // --- Handle Chat Submission (Streaming) ---
   const handleSend = async () => {
     if (!input.trim()) return;
 
@@ -90,13 +117,15 @@ export default function TaxWiseChat() {
     // 1. Add User Message
     const userMessage = { id: Date.now(), role: 'user', text: userText };
     
-    // 2. Add an EMPTY Bot Message immediately
+    // 2. Add an EMPTY Bot Message
     const botMessageId = Date.now() + 1;
     const initialBotMessage = { id: botMessageId, role: 'bot', text: "" };
     
     setMessages(prev => [...prev, userMessage, initialBotMessage]);
 
     const token = localStorage.getItem("authToken");
+    // Use current session ID or empty (backend will handle default)
+    const currentSession = localStorage.getItem("current_session_id");
 
     try {
       const response = await fetch("https://fashionable-demeter-ajeessolutions-c2d97d4a.koyeb.app/ask", {
@@ -105,7 +134,10 @@ export default function TaxWiseChat() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
-        body: JSON.stringify({ question: userText }) 
+        body: JSON.stringify({ 
+            question: userText,
+            session_id: currentSession // Pass the session ID to backend
+        }) 
       });
 
       if (!response.ok) throw new Error("Stream failed");
@@ -114,7 +146,7 @@ export default function TaxWiseChat() {
       const decoder = new TextDecoder();
       let done = false;
       let botTextAccumulator = "";
-      let buffer = ""; // Buffer to hold incomplete JSON chunks
+      let buffer = ""; 
 
       setIsLoading(false); 
 
@@ -126,39 +158,38 @@ export default function TaxWiseChat() {
           const chunkValue = decoder.decode(value, { stream: true });
           buffer += chunkValue;
           
-          // ✅ FIX: Split by newline (\n) instead of double newline
-          // Your backend sends NDJSON (Newline Delimited JSON)
           const lines = buffer.split("\n");
-          
-          // Keep the last piece in buffer (it might be incomplete)
           buffer = lines.pop(); 
 
           for (const line of lines) {
             if (!line.trim()) continue;
 
             try {
-              // ✅ FIX: Parse directly (no 'data:' prefix check needed for NDJSON)
               const data = JSON.parse(line);
 
-              // Handle "token" type updates
+              // 1. Capture Session ID if it's new (Metadata event)
+              if (data.type === "meta" && data.session_id) {
+                  // If we didn't have a session ID before, save it now!
+                  if (!currentSession) {
+                      localStorage.setItem("current_session_id", data.session_id);
+                      setSessionId(data.session_id); // Update state to trigger re-renders if needed
+                      
+                      // Optional: Add to sidebar "Recents" locally if needed
+                      // window.dispatchEvent(new Event("new_chat_session")); 
+                  }
+              }
+
+              // 2. Handle Content Token
               if (data.type === "token" && data.content) {
                 botTextAccumulator += data.content;
-                
                 setMessages(prevMessages => 
                   prevMessages.map(msg => 
-                    msg.id === botMessageId 
-                      ? { ...msg, text: botTextAccumulator } 
-                      : msg
+                    msg.id === botMessageId ? { ...msg, text: botTextAccumulator } : msg
                   )
                 );
               }
-              // Handle "done" or "error" if needed
-              else if (data.type === "error") {
-                 throw new Error(data.message);
-              }
-
             } catch (e) {
-              console.error("Error parsing JSON line:", e, line);
+              console.error("Error parsing JSON line:", e);
             }
           }
         }
@@ -170,7 +201,7 @@ export default function TaxWiseChat() {
       setMessages(prev => [...prev, { 
         id: Date.now() + 1, 
         role: 'bot', 
-        text: "Sorry, I'm having trouble connecting to the server right now. Please try again later." 
+        text: "Sorry, I'm having trouble connecting to the server right now." 
       }]);
     } finally {
       setIsLoading(false);
@@ -184,28 +215,8 @@ export default function TaxWiseChat() {
     }
   };
 
-  // --- Theme Logic ---
-  const toggleTheme = () => {
-    const newMode = !darkMode;
-    setDarkMode(newMode);
-    const savedPrefs = localStorage.getItem("app_preferences");
-    const prefs = savedPrefs ? JSON.parse(savedPrefs) : {};
-    prefs.darkMode = newMode;
-    localStorage.setItem("app_preferences", JSON.stringify(prefs));
-  };
-
-  useEffect(() => {
-    const handleStorageChange = () => {
-      const saved = localStorage.getItem("app_preferences");
-      if (saved) setDarkMode(JSON.parse(saved).darkMode);
-    };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
-
   // --- Dynamic Styles ---
   const mainBg = darkMode ? 'bg-gray-900 text-gray-100' : 'bg-white text-slate-800';
-  const headerBg = darkMode ? 'bg-gray-900/80 border-gray-800' : 'bg-white/80 border-gray-100';
   const footerBg = darkMode ? 'bg-gray-900/90' : 'bg-white/90';
   const inputBg = darkMode ? 'bg-gray-800 border-gray-700 text-white focus:bg-gray-700' : 'bg-gray-50 border-gray-200 text-gray-700 focus:bg-white';
   const botBubbleBg = darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200 text-gray-700';
@@ -233,23 +244,13 @@ export default function TaxWiseChat() {
                 ? `${userBubbleBg} rounded-2xl rounded-tr-none` 
                 : `${botBubbleBg} border rounded-2xl rounded-tl-none`
             }`}>
-              {/* Markdown Rendering */}
               {msg.role === 'bot' ? (
                 <ReactMarkdown 
                   components={{
                     p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />,
                     ul: ({node, ...props}) => <ul className="list-disc pl-4 mb-2 space-y-1" {...props} />,
-                    ol: ({node, ...props}) => <ol className="list-decimal pl-4 mb-2 space-y-1" {...props} />,
                     li: ({node, ...props}) => <li className="mb-1" {...props} />,
                     strong: ({node, ...props}) => <strong className="font-bold" {...props} />,
-                    a: ({node, ...props}) => <a className="text-blue-500 hover:underline" target="_blank" rel="noopener noreferrer" {...props} />,
-                    h1: ({node, ...props}) => <h1 className="text-lg font-bold mb-2 mt-4" {...props} />,
-                    h2: ({node, ...props}) => <h2 className="text-base font-bold mb-2 mt-3" {...props} />,
-                    code: ({node, inline, ...props}) => (
-                      inline 
-                        ? <code className={`px-1 py-0.5 rounded text-xs font-mono ${darkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-red-500'}`} {...props} />
-                        : <code className={`block p-2 rounded text-xs font-mono overflow-x-auto ${darkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-800'}`} {...props} />
-                    ),
                   }}
                 >
                   {msg.text}
