@@ -5,18 +5,53 @@ import {
   MessageSquare, 
   Calculator, 
   Settings, 
-  ChevronRight 
+  ChevronRight,
+  Loader2 
 } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 
 export default function Sidebar({ isOpen, className = "" }) {
   const navigate = useNavigate();
+  const [isCreatingChat, setIsCreatingChat] = useState(false);
   
   // Note: We are keeping the sidebar Brand Green regardless of the theme
   // so we don't strictly need to listen to darkMode for background colors here.
 
-  const ChatClick = (e) => {
-    navigate("/chat");
+  // --- NEW CHAT LOGIC ---
+  const ChatClick = async (e) => {
+    e.preventDefault();
+    setIsCreatingChat(true);
+    const token = localStorage.getItem("authToken");
+
+    try {
+        const response = await fetch("https://fashionable-demeter-ajeessolutions-c2d97d4a.koyeb.app/conversation/new", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.session_id) {
+                // Save the new session ID so the Chat component can use it
+                localStorage.setItem("current_session_id", data.session_id);
+                
+                // Navigate to chat (force refresh if already on page)
+                navigate("/chat");
+                
+                // Optional: Dispatch event if Chat component needs to know immediately
+                window.dispatchEvent(new Event("new_chat_session"));
+            }
+        } else {
+            console.error("Failed to create new conversation");
+        }
+    } catch (error) {
+        console.error("Network error creating chat:", error);
+    } finally {
+        setIsCreatingChat(false);
+    }
   }
 
   const profileClick = (e) => {
@@ -35,7 +70,7 @@ export default function Sidebar({ isOpen, className = "" }) {
     if (!token) return;
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/get/user", {
+      const response = await fetch("https://fashionable-demeter-ajeessolutions-c2d97d4a.koyeb.app/get/user", {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -79,11 +114,16 @@ export default function Sidebar({ isOpen, className = "" }) {
       {/* New Chat Button */}
       <div className="px-4 mb-6">
         <button 
-          className="w-full flex items-center justify-center gap-2 bg-[#003b22] border border-green-700 hover:bg-green-900 text-white py-3 rounded-lg transition-all font-medium shadow-sm hover:shadow-md active:scale-95 group" 
+          className="w-full flex items-center justify-center gap-2 bg-[#003b22] border border-green-700 hover:bg-green-900 text-white py-3 rounded-lg transition-all font-medium shadow-sm hover:shadow-md active:scale-95 group disabled:opacity-70 disabled:cursor-not-allowed" 
           onClick={ChatClick}
+          disabled={isCreatingChat}
         >
-          <Plus size={18} className="group-hover:text-green-400 transition-colors" />
-          <span>New Chat</span>
+          {isCreatingChat ? (
+             <Loader2 size={18} className="animate-spin text-green-400" />
+          ) : (
+             <Plus size={18} className="group-hover:text-green-400 transition-colors" />
+          )}
+          <span>{isCreatingChat ? "Creating..." : "New Chat"}</span>
         </button>
       </div>
 

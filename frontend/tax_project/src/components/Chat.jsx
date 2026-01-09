@@ -51,7 +51,7 @@ export default function TaxWiseChat() {
       if (!token) return;
 
       try {
-        const response = await fetch("http://127.0.0.1:8000/get/user", {
+        const response = await fetch("https://fashionable-demeter-ajeessolutions-c2d97d4a.koyeb.app/get/user", {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
@@ -79,18 +79,18 @@ export default function TaxWiseChat() {
     fetchUserData();
   }, []);
 
-  // --- Handle Chat Submission (STREAMING + MARKDOWN) ---
+  // --- Handle Chat Submission (FIXED STREAMING LOGIC) ---
   const handleSend = async () => {
     if (!input.trim()) return;
 
     const userText = input;
     setInput("");
-    setIsLoading(true); // Show thinking spinner
+    setIsLoading(true); 
 
     // 1. Add User Message
     const userMessage = { id: Date.now(), role: 'user', text: userText };
     
-    // 2. Add an EMPTY Bot Message immediately (placeholder for streaming)
+    // 2. Add an EMPTY Bot Message immediately
     const botMessageId = Date.now() + 1;
     const initialBotMessage = { id: botMessageId, role: 'bot', text: "" };
     
@@ -99,8 +99,7 @@ export default function TaxWiseChat() {
     const token = localStorage.getItem("authToken");
 
     try {
-      // ✅ CHANGED: Point to the streaming endpoint
-      const response = await fetch("http://127.0.0.1:8000/ask/stream", {
+      const response = await fetch("https://fashionable-demeter-ajeessolutions-c2d97d4a.koyeb.app/ask", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -111,13 +110,13 @@ export default function TaxWiseChat() {
 
       if (!response.ok) throw new Error("Stream failed");
 
-      // ✅ STREAMING LOGIC: Read the response chunk by chunk
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let done = false;
       let botTextAccumulator = "";
+      let buffer = ""; // Buffer to hold incomplete JSON chunks
 
-      setIsLoading(false); // Hide spinner, start showing text
+      setIsLoading(false); 
 
       while (!done) {
         const { value, done: doneReading } = await reader.read();
@@ -125,36 +124,41 @@ export default function TaxWiseChat() {
         
         if (value) {
           const chunkValue = decoder.decode(value, { stream: true });
+          buffer += chunkValue;
           
-          // Parse Server-Sent Events (format: "data: {...}")
-          const lines = chunkValue.split("\n\n");
-          for (let line of lines) {
-            if (line.startsWith("data: ")) {
-              const dataStr = line.replace("data: ", "").trim();
-              
-              if (dataStr === "[DONE]") {
-                done = true;
-                break;
+          // ✅ FIX: Split by newline (\n) instead of double newline
+          // Your backend sends NDJSON (Newline Delimited JSON)
+          const lines = buffer.split("\n");
+          
+          // Keep the last piece in buffer (it might be incomplete)
+          buffer = lines.pop(); 
+
+          for (const line of lines) {
+            if (!line.trim()) continue;
+
+            try {
+              // ✅ FIX: Parse directly (no 'data:' prefix check needed for NDJSON)
+              const data = JSON.parse(line);
+
+              // Handle "token" type updates
+              if (data.type === "token" && data.content) {
+                botTextAccumulator += data.content;
+                
+                setMessages(prevMessages => 
+                  prevMessages.map(msg => 
+                    msg.id === botMessageId 
+                      ? { ...msg, text: botTextAccumulator } 
+                      : msg
+                  )
+                );
+              }
+              // Handle "done" or "error" if needed
+              else if (data.type === "error") {
+                 throw new Error(data.message);
               }
 
-              try {
-                const data = JSON.parse(dataStr);
-                // Check for 'token' (standard) or 'error'
-                if (data.token) {
-                  botTextAccumulator += data.token;
-                  
-                  // Update State: This triggers re-render, creating the typing effect
-                  setMessages(prevMessages => 
-                    prevMessages.map(msg => 
-                      msg.id === botMessageId 
-                        ? { ...msg, text: botTextAccumulator } 
-                        : msg
-                    )
-                  );
-                }
-              } catch (e) {
-                console.error("Error parsing stream chunk", e);
-              }
+            } catch (e) {
+              console.error("Error parsing JSON line:", e, line);
             }
           }
         }
@@ -162,7 +166,6 @@ export default function TaxWiseChat() {
 
     } catch (error) {
       console.error("Error fetching chat data:", error);
-      // Remove the empty bot message and show error
       setMessages(prev => prev.filter(msg => msg.id !== botMessageId));
       setMessages(prev => [...prev, { 
         id: Date.now() + 1, 
@@ -211,25 +214,6 @@ export default function TaxWiseChat() {
   return (
     <main className={`flex flex-col relative w-full h-full font-sans transition-colors duration-300 ${mainBg}`}>
       
-      {/* --- Chat Header --- */}
-      {/* <header className={`h-16 border-b flex items-center justify-between px-6 shrink-0 backdrop-blur-sm z-10 transition-colors ${headerBg}`}>
-        <div className="flex items-center gap-4">
-          <button className={`p-2 -ml-2 rounded-lg lg:hidden transition-colors ${darkMode ? 'text-gray-400 hover:bg-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'}`}>
-            <Menu size={20} />
-          </button>
-          <h2 className={`font-semibold ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>New Conversation</h2>
-        </div>
-
-        <div className="flex items-center gap-4">
-          <div className={`hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold tracking-widest border ${darkMode ? 'bg-green-900/30 text-green-400 border-green-900/50' : 'bg-green-50 text-[#008751] border-green-100'}`}>
-            AGENTIC RAG ACTIVE
-          </div>
-          <button onClick={toggleTheme} className={`p-2 rounded-full transition-colors ${darkMode ? 'text-yellow-400 hover:bg-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'}`}>
-            {darkMode ? <Sun size={20} /> : <Moon size={20} />}
-          </button>
-        </div>
-      </header> */}
-
       {/* --- Chat Messages Area --- */}
       <div className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-8">
         
@@ -249,7 +233,7 @@ export default function TaxWiseChat() {
                 ? `${userBubbleBg} rounded-2xl rounded-tr-none` 
                 : `${botBubbleBg} border rounded-2xl rounded-tl-none`
             }`}>
-              {/* ✅ MARKDOWN RENDERING */}
+              {/* Markdown Rendering */}
               {msg.role === 'bot' ? (
                 <ReactMarkdown 
                   components={{
