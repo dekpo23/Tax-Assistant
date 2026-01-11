@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
 import { Route, Routes, useLocation } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
-import Navbar from './components/Navbar';
+
 import TaxWiseChat from './components/Chat';
-import TaxWiseSettings from './components/Settings';
+import Navbar from './components/Navbar';
 import TaxCalculator from './components/Calculator';
 import Login from './components/Login';
 import SignUp from './components/SignUp';
+import TaxWiseSettings from './components/Setting';
+
+
 
 export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -30,7 +33,7 @@ export default function App() {
           showUserAvatar: true,
           showThemeToggle: false
         };
-      case '/settings':
+      case '/Settings':
         return {
           title: "Settings",
           badge: null,
@@ -41,7 +44,7 @@ export default function App() {
       default:
         return {
           title: "New Conversation",
-          badge: "AGENTIC RAG ACTIVE",
+          badge: "TAX AGENT ACTIVE",
           showThemeToggle: true,
           showUserAvatar: false
         };

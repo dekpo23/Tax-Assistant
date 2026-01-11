@@ -5,19 +5,99 @@ import {
   MessageSquare, 
   Calculator, 
   Settings, 
-  ChevronRight 
+  ChevronRight,
+  Loader2 
 } from 'lucide-react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 
 export default function Sidebar({ isOpen, className = "" }) {
   const navigate = useNavigate();
+  const location = useLocation(); // To track active route
+  const [isCreatingChat, setIsCreatingChat] = useState(false);
   
-  // Note: We are keeping the sidebar Brand Green regardless of the theme
-  // so we don't strictly need to listen to darkMode for background colors here.
+  // ✅ 1. State to store the list of conversation sessions
+  const [recentSessions, setRecentSessions] = useState([]);
+  const [activeSessionId, setActiveSessionId] = useState(localStorage.getItem("current_session_id"));
 
-  const ChatClick = (e) => {
-    navigate("/chat");
+  // ✅ 2. Load sessions from LocalStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("chat_sessions");
+      if (saved) {
+        setRecentSessions(JSON.parse(saved));
+      }
+    } catch (e) {
+      console.error("Error parsing saved sessions:", e);
+    }
+    fetchUserData();
+  }, []);
+
+  // Listen for session updates (in case Chat component changes it)
+  useEffect(() => {
+    const handleSessionChange = () => {
+        setActiveSessionId(localStorage.getItem("current_session_id"));
+    };
+    window.addEventListener('new_chat_session', handleSessionChange);
+    return () => window.removeEventListener('new_chat_session', handleSessionChange);
+  }, []);
+
+  // --- NEW CHAT LOGIC ---
+  const ChatClick = async (e) => {
+    e.preventDefault();
+    setIsCreatingChat(true);
+    const token = localStorage.getItem("authToken");
+
+    try {
+        const response = await fetch("https://fashionable-demeter-ajeessolutions-c2d97d4a.koyeb.app/conversation/new", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.session_id) {
+                // ✅ 3. Create new session object
+                const newSession = {
+                    id: data.session_id,
+                    label: `Conversation ${recentSessions.length + 1}`, // Default Name
+                    date: new Date().toLocaleDateString()
+                };
+
+                // ✅ 4. Add to list and Save to LocalStorage
+                const updatedList = [newSession, ...recentSessions];
+                setRecentSessions(updatedList);
+                localStorage.setItem("chat_sessions", JSON.stringify(updatedList));
+
+                // ✅ 5. Set as Active and Navigate
+                localStorage.setItem("current_session_id", data.session_id);
+                setActiveSessionId(data.session_id);
+                
+                navigate("/chat");
+                
+                // Notify Chat component to refresh
+                window.dispatchEvent(new Event("new_chat_session"));
+            }
+        } else {
+            console.error("Failed to create new conversation");
+        }
+    } catch (error) {
+        console.error("Network error creating chat:", error);
+    } finally {
+        setIsCreatingChat(false);
+    }
   }
+
+  // ✅ 6. Handle clicking an old chat
+  const handleHistoryClick = (sessionId) => {
+      localStorage.setItem("current_session_id", sessionId);
+      setActiveSessionId(sessionId);
+      navigate("/chat");
+      // This event tells Chat.jsx to reload the history for this ID
+      window.dispatchEvent(new Event("new_chat_session"));
+  };
 
   const profileClick = (e) => {
     navigate("/settings");
@@ -30,8 +110,6 @@ export default function Sidebar({ isOpen, className = "" }) {
 
   const fetchUserData = async () => {
     const token = localStorage.getItem("authToken");
-    
-    // If no token, we just keep the mock data
     if (!token) return;
 
     try {
@@ -44,7 +122,6 @@ export default function Sidebar({ isOpen, className = "" }) {
       });
 
       if (!response.ok) {
-        console.log("Error fetching user data. Using mock data.");
         if (response.status === 401) {
            localStorage.removeItem("authToken");
            navigate("/");
@@ -62,12 +139,7 @@ export default function Sidebar({ isOpen, className = "" }) {
     }
   };
 
-  useEffect(() => {
-    fetchUserData();
-  }, []); // Run once on mount
-
   return (
-    // Fixed: bg-[#003b22] ensures the sidebar is always Green
     <aside className={`w-72 bg-[#003b22] text-white flex flex-col shrink-0 h-full transition-transform duration-300 ${className}`}>
       
       {/* Brand */}
@@ -79,11 +151,16 @@ export default function Sidebar({ isOpen, className = "" }) {
       {/* New Chat Button */}
       <div className="px-4 mb-6">
         <button 
-          className="w-full flex items-center justify-center gap-2 bg-[#003b22] border border-green-700 hover:bg-green-900 text-white py-3 rounded-lg transition-all font-medium shadow-sm hover:shadow-md active:scale-95 group" 
+          className="w-full flex items-center justify-center gap-2 bg-[#003b22] border border-green-700 hover:bg-green-900 text-white py-3 rounded-lg transition-all font-medium shadow-sm hover:shadow-md active:scale-95 group disabled:opacity-70 disabled:cursor-not-allowed" 
           onClick={ChatClick}
+          disabled={isCreatingChat}
         >
-          <Plus size={18} className="group-hover:text-green-400 transition-colors" />
-          <span>New Chat</span>
+          {isCreatingChat ? (
+             <Loader2 size={18} className="animate-spin text-green-400" />
+          ) : (
+             <Plus size={18} className="group-hover:text-green-400 transition-colors" />
+          )}
+          <span>{isCreatingChat ? "Creating..." : "New Chat"}</span>
         </button>
       </div>
 
@@ -98,17 +175,34 @@ export default function Sidebar({ isOpen, className = "" }) {
           </div>
           
           <div className="space-y-1">
-            {/* Active Item Example */}
-            {/* <div className="flex items-center gap-3 px-3 py-3 bg-[#008751] text-white rounded-lg cursor-pointer shadow-sm">
-              <MessageSquare size={18} />
-              <span className="text-sm font-medium truncate">New Conversation</span>
-            </div> */}
-
-            {/* Inactive Item Example */}
-            {/* <div className="flex items-center gap-3 px-3 py-3 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg cursor-pointer transition-colors">
-              <MessageSquare size={18} />
-              <span className="text-sm font-medium truncate">Initial Welcome Chat</span>
-            </div> */}
+            {recentSessions.length === 0 ? (
+                <div className="px-3 py-2 text-xs text-green-200/40 italic">
+                    No history yet
+                </div>
+            ) : (
+                recentSessions.map((session) => {
+                    // Check if this session is the currently active one
+                    const isActive = activeSessionId === session.id && location.pathname === '/chat';
+                    
+                    return (
+                        <div 
+                            key={session.id}
+                            onClick={() => handleHistoryClick(session.id)}
+                            className={`flex items-center gap-3 px-3 py-3 rounded-lg cursor-pointer transition-colors group ${
+                                isActive 
+                                ? "bg-[#008751] text-white shadow-sm" 
+                                : "text-green-100/80 hover:text-white hover:bg-white/10"
+                            }`}
+                        >
+                            <MessageSquare size={18} className={`shrink-0 ${isActive ? 'text-white' : 'group-hover:text-green-300'}`} />
+                            <div className="flex flex-col overflow-hidden">
+                                <span className="text-sm font-medium truncate">{session.label}</span>
+                                <span className={`text-[10px] ${isActive ? 'text-green-100' : 'text-green-400/60'}`}>{session.date}</span>
+                            </div>
+                        </div>
+                    );
+                })
+            )}
           </div>
         </div>
 

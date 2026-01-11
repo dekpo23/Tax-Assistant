@@ -2,7 +2,7 @@
 
 def calculate_pita_2024(annual_income: float) -> dict:
     """
-    Nigeria PITA 2024 (simplified but structured correctly)
+    Nigeria PITA 2024 
     """
 
     # Consolidated Relief Allowance (CRA)

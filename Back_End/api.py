@@ -53,33 +53,46 @@ def signup(user: UserCreate, db: Session = Depends(get_db)):
 def login(credentials: UserLogin, db: Session = Depends(get_db)):
     from database.models import User
     
-    user = db.query(User).filter(User.email == credentials.email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        user = db.query(User).filter(User.email == credentials.email).first()
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
     
-    # Verify password
-    stored_password = user.password if isinstance(user.password, bytes) else user.password.encode('utf-8')
-    if not bcrypt.checkpw(credentials.password.encode('utf-8'), stored_password):
-        raise HTTPException(status_code=401, detail="Invalid password")
+        # Verify password
+        stored_password = user.password if isinstance(user.password, bytes) else user.password.encode('utf-8')
+        
+        if not bcrypt.checkpw(credentials.password.encode('utf-8'), stored_password):
+            raise HTTPException(status_code=401, detail="Invalid password")
     
-    # Create JWT token
-    token = create_token(
-        details={
-            "name": user.name,
-            "email": user.email,
-            "usertype": user.usertype,
-            "user_id": user.id
-        },
-        expiry=token_time
-    )
+        # Create JWT token
+        token = create_token(
+            details={
+                "name": user.name,
+                "email": user.email,
+                "usertype": user.usertype,
+                "user_id": user.id
+            },
+            expiry=token_time
+        )
     
-    return {
-        "message": "Login successful",
-        "user": {
-            "id": user.id,
-            "name": user.name,
-            "email": user.email,
-            "usertype": user.usertype
-        },
-        "token": token
-    }
+        return {
+            "message": "Login successful",
+            "user": {
+                "id": user.id,
+                "name": user.name,
+                "email": user.email,
+                "usertype": user.usertype
+            },
+            "token": token
+        }
+    
+    except HTTPException as http_e:
+        # Re-raise HTTP exceptions (like 404/401) directly so the frontend gets the right error
+        raise http_e
+        
+    except Exception as e:
+        db.rollback()
+        # Log the error here if you have a logger
+        print(f"Login Error: {str(e)}") 
+        raise HTTPException(status_code=500, detail="Internal Server Error")

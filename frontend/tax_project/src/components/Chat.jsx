@@ -24,14 +24,9 @@ export default function TaxWiseChat() {
   // --- Chat & User State ---
   const [input, setInput] = useState("");
   const [userName, setUserName] = useState("User");
-  const [messages, setMessages] = useState([
-    { 
-      id: 1, 
-      role: 'bot', 
-      text: "Hello! I'm your TaxWise assistant. How can I help you understand the Nigerian Tax reforms today?" 
-    }
-  ]);
+  const [messages, setMessages] = useState([]); // Start empty, load history later
   const [isLoading, setIsLoading] = useState(false);
+  const [sessionId, setSessionId] = useState(localStorage.getItem("current_session_id"));
   
   // Auto-scroll ref
   const messagesEndRef = useRef(null);
@@ -44,80 +39,116 @@ export default function TaxWiseChat() {
     scrollToBottom();
   }, [messages, isLoading]);
 
-  // --- Fetch User Data ---
+  // --- 1. Listen for Session Changes (from Sidebar) ---
   useEffect(() => {
-    const fetchUserData = async () => {
+    const handleSessionChange = () => {
+        const newId = localStorage.getItem("current_session_id");
+        setSessionId(newId);
+    };
+
+    window.addEventListener('new_chat_session', handleSessionChange);
+    return () => window.removeEventListener('new_chat_session', handleSessionChange);
+  }, []);
+
+  // --- 2. Fetch User Data & Chat History ---
+  useEffect(() => {
+    const initializeChat = async () => {
       const token = localStorage.getItem("authToken");
       if (!token) return;
 
+      // A. Fetch User Name
       try {
-        const response = await fetch("https://fashionable-demeter-ajeessolutions-c2d97d4a.koyeb.app/get/user", {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-          }
+        const userRes = await fetch("https://fashionable-demeter-ajeessolutions-c2d97d4a.koyeb.app/get/user", {
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }
         });
-
-        if (response.ok) {
-          const data = await response.json();
-          let fetchedName = "User";
-          if (data.name) fetchedName = data.name;
-          else if (data.full_name) fetchedName = data.full_name.split(' ')[0];
-          
-          setUserName(fetchedName);
-          
-          setMessages(prev => prev.map(msg => 
-            msg.id === 1 ? { ...msg, text: `Hello ${fetchedName}! How can I help you understand the Nigerian Tax reforms today?` } : msg
-          ));
+        if (userRes.ok) {
+          const userData = await userRes.json();
+          setUserName(userData.name || "User");
         }
-      } catch (error) {
-        console.error("Failed to fetch user data", error);
+      } catch (e) { console.error("User fetch error", e); }
+
+      // B. Fetch History or Set Default
+      if (sessionId) {
+          try {
+              const historyRes = await fetch(`https://fashionable-demeter-ajeessolutions-c2d97d4a.koyeb.app/conversation/history/${sessionId}`, {
+                  headers: { "Authorization": `Bearer ${token}` }
+              });
+              
+              if (historyRes.ok) {
+                  const data = await historyRes.json();
+                  if (data.history && data.history.length > 0) {
+                      // Format Backend History to Frontend State
+                      const formattedMessages = data.history.map((msg, index) => ({
+                          id: index, // Simple index ID
+                          role: msg.role === 'human' ? 'user' : 'bot', // Map 'human' -> 'user', 'ai' -> 'bot'
+                          text: msg.content
+                      }));
+                      setMessages(formattedMessages);
+                  } else {
+                      // Session exists but is empty? Show default.
+                      setMessages([{ id: 'init', role: 'bot', text: `Welcome to TaxWise AI Assitant! How can I be of help?` }]);
+                  }
+              }
+          } catch (e) {
+              console.error("History fetch error", e);
+          }
+      } else {
+          // No Session ID? It's a brand new (local) chat.
+          setMessages([{ 
+              id: 'init', 
+              role: 'bot', 
+              text: "Hello! I'm your TaxWise assistant. How can I help you understand the Nigerian Tax reforms today?" 
+          }]);
       }
     };
 
-    fetchUserData();
-  }, []);
+    initializeChat();
+  }, [sessionId]); // Re-run when session ID changes
 
-  // --- Handle Chat Submission (STREAMING + MARKDOWN) ---
+
+  // --- Handle Chat Submission (Streaming) ---
   const handleSend = async () => {
     if (!input.trim()) return;
 
     const userText = input;
     setInput("");
-    setIsLoading(true); // Show thinking spinner
+    setIsLoading(true); 
 
     // 1. Add User Message
     const userMessage = { id: Date.now(), role: 'user', text: userText };
     
-    // 2. Add an EMPTY Bot Message immediately (placeholder for streaming)
+    // 2. Add an EMPTY Bot Message
     const botMessageId = Date.now() + 1;
     const initialBotMessage = { id: botMessageId, role: 'bot', text: "" };
     
     setMessages(prev => [...prev, userMessage, initialBotMessage]);
 
     const token = localStorage.getItem("authToken");
+    // Use current session ID or empty (backend will handle default)
+    const currentSession = localStorage.getItem("current_session_id");
 
     try {
-      // ✅ CHANGED: Point to the streaming endpoint
-      const response = await fetch("https://fashionable-demeter-ajeessolutions-c2d97d4a.koyeb.app/ask/stream", {
+      const response = await fetch("https://fashionable-demeter-ajeessolutions-c2d97d4a.koyeb.app/ask", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
-        body: JSON.stringify({ question: userText }) 
+        body: JSON.stringify({ 
+            question: userText,
+            session_id: currentSession // Pass the session ID to backend
+        }) 
       });
 
       if (!response.ok) throw new Error("Stream failed");
 
-      // ✅ STREAMING LOGIC: Read the response chunk by chunk
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let done = false;
       let botTextAccumulator = "";
+      let buffer = ""; 
 
-      setIsLoading(false); // Hide spinner, start showing text
+      setIsLoading(false); 
 
       while (!done) {
         const { value, done: doneReading } = await reader.read();
@@ -125,36 +156,40 @@ export default function TaxWiseChat() {
         
         if (value) {
           const chunkValue = decoder.decode(value, { stream: true });
+          buffer += chunkValue;
           
-          // Parse Server-Sent Events (format: "data: {...}")
-          const lines = chunkValue.split("\n\n");
-          for (let line of lines) {
-            if (line.startsWith("data: ")) {
-              const dataStr = line.replace("data: ", "").trim();
-              
-              if (dataStr === "[DONE]") {
-                done = true;
-                break;
+          const lines = buffer.split("\n");
+          buffer = lines.pop(); 
+
+          for (const line of lines) {
+            if (!line.trim()) continue;
+
+            try {
+              const data = JSON.parse(line);
+
+              // 1. Capture Session ID if it's new (Metadata event)
+              if (data.type === "meta" && data.session_id) {
+                  // If we didn't have a session ID before, save it now!
+                  if (!currentSession) {
+                      localStorage.setItem("current_session_id", data.session_id);
+                      setSessionId(data.session_id); // Update state to trigger re-renders if needed
+                      
+                      // Optional: Add to sidebar "Recents" locally if needed
+                      // window.dispatchEvent(new Event("new_chat_session")); 
+                  }
               }
 
-              try {
-                const data = JSON.parse(dataStr);
-                // Check for 'token' (standard) or 'error'
-                if (data.token) {
-                  botTextAccumulator += data.token;
-                  
-                  // Update State: This triggers re-render, creating the typing effect
-                  setMessages(prevMessages => 
-                    prevMessages.map(msg => 
-                      msg.id === botMessageId 
-                        ? { ...msg, text: botTextAccumulator } 
-                        : msg
-                    )
-                  );
-                }
-              } catch (e) {
-                console.error("Error parsing stream chunk", e);
+              // 2. Handle Content Token
+              if (data.type === "token" && data.content) {
+                botTextAccumulator += data.content;
+                setMessages(prevMessages => 
+                  prevMessages.map(msg => 
+                    msg.id === botMessageId ? { ...msg, text: botTextAccumulator } : msg
+                  )
+                );
               }
+            } catch (e) {
+              console.error("Error parsing JSON line:", e);
             }
           }
         }
@@ -162,12 +197,11 @@ export default function TaxWiseChat() {
 
     } catch (error) {
       console.error("Error fetching chat data:", error);
-      // Remove the empty bot message and show error
       setMessages(prev => prev.filter(msg => msg.id !== botMessageId));
       setMessages(prev => [...prev, { 
         id: Date.now() + 1, 
         role: 'bot', 
-        text: "Sorry, I'm having trouble connecting to the server right now. Please try again later." 
+        text: "Sorry, I'm having trouble connecting to the server right now." 
       }]);
     } finally {
       setIsLoading(false);
@@ -181,28 +215,8 @@ export default function TaxWiseChat() {
     }
   };
 
-  // --- Theme Logic ---
-  const toggleTheme = () => {
-    const newMode = !darkMode;
-    setDarkMode(newMode);
-    const savedPrefs = localStorage.getItem("app_preferences");
-    const prefs = savedPrefs ? JSON.parse(savedPrefs) : {};
-    prefs.darkMode = newMode;
-    localStorage.setItem("app_preferences", JSON.stringify(prefs));
-  };
-
-  useEffect(() => {
-    const handleStorageChange = () => {
-      const saved = localStorage.getItem("app_preferences");
-      if (saved) setDarkMode(JSON.parse(saved).darkMode);
-    };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
-
   // --- Dynamic Styles ---
   const mainBg = darkMode ? 'bg-gray-900 text-gray-100' : 'bg-white text-slate-800';
-  const headerBg = darkMode ? 'bg-gray-900/80 border-gray-800' : 'bg-white/80 border-gray-100';
   const footerBg = darkMode ? 'bg-gray-900/90' : 'bg-white/90';
   const inputBg = darkMode ? 'bg-gray-800 border-gray-700 text-white focus:bg-gray-700' : 'bg-gray-50 border-gray-200 text-gray-700 focus:bg-white';
   const botBubbleBg = darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200 text-gray-700';
@@ -211,25 +225,6 @@ export default function TaxWiseChat() {
   return (
     <main className={`flex flex-col relative w-full h-full font-sans transition-colors duration-300 ${mainBg}`}>
       
-      {/* --- Chat Header --- */}
-      {/* <header className={`h-16 border-b flex items-center justify-between px-6 shrink-0 backdrop-blur-sm z-10 transition-colors ${headerBg}`}>
-        <div className="flex items-center gap-4">
-          <button className={`p-2 -ml-2 rounded-lg lg:hidden transition-colors ${darkMode ? 'text-gray-400 hover:bg-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'}`}>
-            <Menu size={20} />
-          </button>
-          <h2 className={`font-semibold ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>New Conversation</h2>
-        </div>
-
-        <div className="flex items-center gap-4">
-          <div className={`hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold tracking-widest border ${darkMode ? 'bg-green-900/30 text-green-400 border-green-900/50' : 'bg-green-50 text-[#008751] border-green-100'}`}>
-            AGENTIC RAG ACTIVE
-          </div>
-          <button onClick={toggleTheme} className={`p-2 rounded-full transition-colors ${darkMode ? 'text-yellow-400 hover:bg-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'}`}>
-            {darkMode ? <Sun size={20} /> : <Moon size={20} />}
-          </button>
-        </div>
-      </header> */}
-
       {/* --- Chat Messages Area --- */}
       <div className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-8">
         
@@ -249,23 +244,13 @@ export default function TaxWiseChat() {
                 ? `${userBubbleBg} rounded-2xl rounded-tr-none` 
                 : `${botBubbleBg} border rounded-2xl rounded-tl-none`
             }`}>
-              {/* ✅ MARKDOWN RENDERING */}
               {msg.role === 'bot' ? (
                 <ReactMarkdown 
                   components={{
                     p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />,
                     ul: ({node, ...props}) => <ul className="list-disc pl-4 mb-2 space-y-1" {...props} />,
-                    ol: ({node, ...props}) => <ol className="list-decimal pl-4 mb-2 space-y-1" {...props} />,
                     li: ({node, ...props}) => <li className="mb-1" {...props} />,
                     strong: ({node, ...props}) => <strong className="font-bold" {...props} />,
-                    a: ({node, ...props}) => <a className="text-blue-500 hover:underline" target="_blank" rel="noopener noreferrer" {...props} />,
-                    h1: ({node, ...props}) => <h1 className="text-lg font-bold mb-2 mt-4" {...props} />,
-                    h2: ({node, ...props}) => <h2 className="text-base font-bold mb-2 mt-3" {...props} />,
-                    code: ({node, inline, ...props}) => (
-                      inline 
-                        ? <code className={`px-1 py-0.5 rounded text-xs font-mono ${darkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-red-500'}`} {...props} />
-                        : <code className={`block p-2 rounded text-xs font-mono overflow-x-auto ${darkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-800'}`} {...props} />
-                    ),
                   }}
                 >
                   {msg.text}
