@@ -6,12 +6,17 @@ from langchain_core.messages import (
     ToolMessage,
     SystemMessage
 )
-
+import os
 
 assistant = get_tax_assistant()
 
 question = "Are taxes imposed on farmers"
-user_id = "debug-90"
+user_id = "debug-91"
+
+for filename in os.listdir("tax_files"):
+    if not filename.lower().endswith(".pdf"):
+        continue
+    print(filename)
 
 print("\n" + "=" * 80)
 print("QUESTION:")

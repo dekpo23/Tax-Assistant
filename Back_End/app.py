@@ -148,6 +148,7 @@ class TaxAssistant:
             if not filename.lower().endswith(".pdf"):
                 continue
 
+            print(filename)
             with pdfplumber.open(os.path.join(self.pdf_directory, filename)) as pdf:
                 for i, page in enumerate(pdf.pages):
                     text = page.extract_text() or ""
